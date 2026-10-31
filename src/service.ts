@@ -217,8 +217,8 @@ export class Service {
     for (const p of this.live.pilots.values()) {
       const s = p.profile.status;
       if (p.blocked || s?.state !== 'sos') continue;
-      const { first, last, wing, type } = p.profile;
-      pilots.push({ p: { first, last, wing, type }, t: s.t, lat: s.lat, lon: s.lon, alt: s.alt, pts: this.store.track(p.pid, s.t - SOS_TRAIL_S, nowS + 120, 5000, SHARED_STEP).map(wire) });
+      const { first, last, brand, wing, type } = p.profile;
+      pilots.push({ p: { first, last, brand, wing, type }, t: s.t, lat: s.lat, lon: s.lon, alt: s.alt, pts: this.store.track(p.pid, s.t - SOS_TRAIL_S, nowS + 120, 5000, SHARED_STEP).map(wire) });
     }
     return { now: nowS, pilots: pilots.sort((a, b) => b.t - a.t).slice(0, MAX_SOS) };
   }
@@ -233,8 +233,8 @@ export class Service {
     if (pid === undefined || !p || p.blocked) throw new HttpError(404, 'unknown-link');
     const nowS = Math.floor(this.now()), oldest = nowS - Math.min(SHARED_H, this.cfg.retentionH) * 3600;
     const after = since !== null && since !== '' && Number.isFinite(Number(since)) ? Number(since) + 1 : null;
-    const { first, last, wing, type, status } = p.profile;
-    return { p: { first, last, wing, type }, ...(status ? { status } : {}), now: nowS, pts: this.store.track(pid, Math.max(oldest, after ?? 0), nowS + 120, 100000, after === null ? SHARED_STEP : 0).map(wire) };
+    const { first, last, brand, wing, type, status } = p.profile;
+    return { p: { first, last, brand, wing, type }, ...(status ? { status } : {}), now: nowS, pts: this.store.track(pid, Math.max(oldest, after ?? 0), nowS + 120, 100000, after === null ? SHARED_STEP : 0).map(wire) };
   }
 
   /** le pilote efface tout ce que le serveur a de lui */
@@ -321,4 +321,4 @@ export class Service {
   }
 }
 
-export const profileOf = (p: PilotRow): Profile => ({ first: p.first, last: p.last, wing: p.wing, type: p.type, app: p.app, ...(p.ids ? { ids: p.ids } : {}) });
+export const profileOf = (p: PilotRow): Profile => ({ first: p.first, last: p.last, brand: p.brand, wing: p.wing, type: p.type, app: p.app, ...(p.ids ? { ids: p.ids } : {}) });

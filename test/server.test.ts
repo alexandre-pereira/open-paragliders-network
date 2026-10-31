@@ -43,7 +43,7 @@ async function client(hello: Record<string, unknown>) {
 }
 
 test('lien de suivi : un par pilote, l’ancien meurt, ni clé ni autre pilote', async () => {
-  const me = { device: 'lien-de-suivi-1', secret: SECRET, pilot: { first: 'Inès', last: 'Roux', wing: 'Enzo 3' }, app: 'WS Nav 1.4' };
+  const me = { device: 'lien-de-suivi-1', secret: SECRET, pilot: { first: 'Inès', last: 'Roux', brand: 'Ozone', wing: 'Enzo 3' }, app: 'WS Nav 1.4' };
   const A = 'a'.repeat(24), B = 'b'.repeat(24), t = now() - 30;
   assert.equal((await post('/api/v1/share', { ...me, token: 'court' })).status, 400);
   assert.equal((await post('/api/v1/share', { ...me, token: A }, { 'X-App-Key': 'mauvaise' })).status, 401);
@@ -54,7 +54,7 @@ test('lien de suivi : un par pilote, l’ancien meurt, ni clé ni autre pilote',
   // aucune clé : le jeton suffit, et il ne montre que son pilote, sans identifiant ni logiciel
   const r = await fetch(`${base}/api/v1/shared/${A}`), d = await r.json();
   assert.equal(r.status, 200);
-  assert.deepEqual(d.p, { first: 'Inès', last: 'Roux', wing: 'Enzo 3', type: 'paraglider' });
+  assert.deepEqual(d.p, { first: 'Inès', last: 'Roux', brand: 'Ozone', wing: 'Enzo 3', type: 'paraglider' });
   assert.equal(d.pts.length, 2);
   assert.ok(!/lien-de-suivi|WS Nav|pilot"/.test(JSON.stringify(d)));
   assert.equal((await (await fetch(`${base}/api/v1/shared/${A}?since=${t}`)).json()).pts.length, 1, 'seulement la suite');

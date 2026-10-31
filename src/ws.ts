@@ -137,7 +137,7 @@ export class LiveSocket {
         if (!p || p.blocked) { c.pilot = null; throw new HttpError(403, 'blocked'); }
         c.pilot = p;
         if (m.pilot !== undefined || m.app !== undefined) svc.updateProfile(p, m.pilot, m.app);
-        if (op === 'pilot') return this.send(c, { op: 'ack', id: m.id, ok: true, pilot: String(p.pid), p: { first: p.first, last: p.last, wing: p.wing, type: p.type, app: p.app } });
+        if (op === 'pilot') return this.send(c, { op: 'ack', id: m.id, ok: true, pilot: String(p.pid), p: { first: p.first, last: p.last, brand: p.brand, wing: p.wing, type: p.type, app: p.app } });
         return this.send(c, { op: 'ack', ...(m.id !== undefined ? { id: m.id } : {}), ...svc.ingestFor(p, m.pts ?? m.points) });
       }
       case 'sub': return this.subscribe(c, m);

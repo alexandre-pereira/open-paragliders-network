@@ -27,6 +27,7 @@ CREATE TABLE IF NOT EXISTS pilots (
   secret TEXT NOT NULL,
   first TEXT NOT NULL DEFAULT '',
   last TEXT NOT NULL DEFAULT '',
+  brand TEXT NOT NULL DEFAULT '',
   wing TEXT NOT NULL DEFAULT '',
   type TEXT NOT NULL DEFAULT 'paraglider',
   app TEXT NOT NULL DEFAULT '',
@@ -104,7 +105,7 @@ export interface AuditRow { t: number; ip: string; action: string; detail: strin
 type Row = Record<string, unknown>;
 const toPilot = (r: Row): PilotRow => ({
   pid: r.pid as number, device: r.device as string, secret: r.secret as string,
-  first: r.first as string, last: r.last as string, wing: r.wing as string, type: r.type as AircraftType, app: r.app as string,
+  first: r.first as string, last: r.last as string, brand: r.brand as string, wing: r.wing as string, type: r.type as AircraftType, app: r.app as string,
   ...(r.ids && r.ids !== '{}' ? { ids: JSON.parse(r.ids as string) as Record<string, string> } : {}),
   pv: r.pv as number, blocked: !!r.blocked, created: r.created as number, seen: r.seen as number,
 });
@@ -137,14 +138,16 @@ export class Store {
     this.db.exec('PRAGMA busy_timeout = 5000');
     this.db.exec('PRAGMA cache_size = -16000');
     this.db.exec(SCHEMA);
-    // base d'avant les identifiants
-    if (!(this.db.prepare('PRAGMA table_info(pilots)').all() as Row[]).some(c => c.name === 'ids')) this.db.exec("ALTER TABLE pilots ADD COLUMN ids TEXT NOT NULL DEFAULT '{}'");
+    // base d'avant les identifiants, d'avant la marque
+    const cols = (this.db.prepare('PRAGMA table_info(pilots)').all() as Row[]).map(c => c.name);
+    if (!cols.includes('ids')) this.db.exec("ALTER TABLE pilots ADD COLUMN ids TEXT NOT NULL DEFAULT '{}'");
+    if (!cols.includes('brand')) this.db.exec("ALTER TABLE pilots ADD COLUMN brand TEXT NOT NULL DEFAULT ''");
     const p = (k: string, sql: string) => { this.st[k] = this.db.prepare(sql); };
     p('byDevice', 'SELECT * FROM pilots WHERE device = ?');
     p('byId', 'SELECT * FROM pilots WHERE pid = ?');
-    p('newPilot', `INSERT INTO pilots (device, secret, first, last, wing, type, app, ids, pv, blocked, created, seen)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, 0, ?, ?) RETURNING *`);
-    p('profile', 'UPDATE pilots SET first = ?, last = ?, wing = ?, type = ?, app = ?, ids = ?, pv = pv + 1 WHERE pid = ? RETURNING pv');
+    p('newPilot', `INSERT INTO pilots (device, secret, first, last, brand, wing, type, app, ids, pv, blocked, created, seen)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1, 0, ?, ?) RETURNING *`);
+    p('profile', 'UPDATE pilots SET first = ?, last = ?, brand = ?, wing = ?, type = ?, app = ?, ids = ?, pv = pv + 1 WHERE pid = ? RETURNING pv');
     p('seen', 'UPDATE pilots SET seen = ? WHERE pid = ?');
     p('blocked', 'UPDATE pilots SET blocked = ? WHERE pid = ?');
     p('delPoints', 'DELETE FROM points WHERE pid = ?');
@@ -186,11 +189,11 @@ export class Store {
   allPilots(): PilotRow[] { return (this.db.prepare('SELECT * FROM pilots').all() as Row[]).map(toPilot); }
 
   createPilot(device: string, secret: string, p: Profile = EMPTY_PROFILE, now: number): PilotRow {
-    return toPilot(this.st.newPilot.get(device, secret, p.first, p.last, p.wing, p.type, p.app, JSON.stringify(p.ids ?? {}), now, now) as Row);
+    return toPilot(this.st.newPilot.get(device, secret, p.first, p.last, p.brand, p.wing, p.type, p.app, JSON.stringify(p.ids ?? {}), now, now) as Row);
   }
   /** nouvelle version du profil */
   setProfile(pid: number, p: Profile): number {
-    return (this.st.profile.get(p.first, p.last, p.wing, p.type, p.app, JSON.stringify(p.ids ?? {}), pid) as Row).pv as number;
+    return (this.st.profile.get(p.first, p.last, p.brand, p.wing, p.type, p.app, JSON.stringify(p.ids ?? {}), pid) as Row).pv as number;
   }
   touch(pid: number, now: number) { this.st.seen.run(now, pid); }
   setBlocked(pid: number, b: boolean) { this.st.blocked.run(b ? 1 : 0, pid); }

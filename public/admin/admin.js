@@ -23,6 +23,7 @@ const state = {
 
 const nowS = () => Math.floor(Date.now() / 1000);
 const nameOf = p => [p.p?.first, p.p?.last].filter(Boolean).join(' ') || `Pilote ${p.id}`;
+const wingOf = p => [p.p?.brand, p.p?.wing].filter(Boolean).join(' ');
 const colorOf = id => `hsl(${Math.round((Number(id) * 137.508) % 360)} 78% 45%)`;
 const ago = t => { const s = nowS() - t; return s < 60 ? `${Math.max(0, s)} s` : s < 3600 ? `${Math.round(s / 60)} min` : s < 86400 ? `${Math.floor(s / 3600)} h ${String(Math.round((s % 3600) / 60)).padStart(2, '0')}` : `${Math.round(s / 86400)} j`; };
 const hhmm = t => new Date(t * 1000).toLocaleString('fr-FR', { weekday: 'short', hour: '2-digit', minute: '2-digit', second: '2-digit' });
@@ -125,7 +126,7 @@ function filters() {
     if (altMin !== null && (last[3] ?? -Infinity) < altMin) return false;
     if (q) {
       const m = state.meta.get(p.id);
-      const hay = [p.id, p.p?.first, p.p?.last, p.p?.wing, p.p?.app, m?.device].join(' ').toLowerCase();
+      const hay = [p.id, p.p?.first, p.p?.last, wingOf(p), p.p?.app, m?.device].join(' ').toLowerCase();
       if (!q.split(/\s+/).every(w => hay.includes(w))) return false;
     }
     return true;
@@ -186,7 +187,7 @@ function renderList(list) {
       el('span', { className: 'sw' }),
       el('span', { className: 'name', textContent: [p.p?.status?.state === 'sos' ? 'POSÉ PAS OK' : '', nameOf(p)].filter(Boolean).join(' · ') }),
       el('span', { className: 'ago', textContent: ago(last[0]) }),
-      el('span', { className: 'sub', textContent: [p.p?.wing, p.p?.app, last[3] != null ? `${last[3]} m` : ''].filter(Boolean).join(' · ') || TYPE_FR[p.p?.type] || '' }));
+      el('span', { className: 'sub', textContent: [wingOf(p), p.p?.app, last[3] != null ? `${last[3]} m` : ''].filter(Boolean).join(' · ') || TYPE_FR[p.p?.type] || '' }));
     li.firstChild.style.background = colorOf(p.id);
     li.addEventListener('click', () => select(p.id, true));
     return li;
@@ -216,7 +217,7 @@ function renderDetail() {
   const dl = el('dl');
   const row = (k, v) => { if (v !== undefined && v !== null && v !== '') dl.append(el('dt', { textContent: k }), el('dd', { textContent: String(v) })); };
   row('État', flagOf(p));
-  row('Voile', p.p?.wing); row('Type', TYPE_FR[p.p?.type]); row('Logiciel', p.p?.app); row('N°', p.id); row('Appareil', m?.device);
+  row('Voile', wingOf(p)); row('Type', TYPE_FR[p.p?.type]); row('Logiciel', p.p?.app); row('N°', p.id); row('Appareil', m?.device);
   row('Dernier point', `${hhmm(last[0])} (il y a ${ago(last[0])})`);
   row('Altitude', last[3] != null ? `${last[3]} m` : '—');
   row('Vitesse sol', last[4] != null ? `${Math.round(last[4] * 3.6)} km/h` : '—');

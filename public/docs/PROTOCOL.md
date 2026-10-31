@@ -91,10 +91,11 @@ the same `t` is a duplicate (counted in `dup`, ignored).
 What other pilots see:
 
 ```json
-{ "first": "Zoé", "last": "Martin", "wing": "Ozone Zeno 2", "type": "paraglider", "app": "MyVario 2.1" }
+{ "first": "Zoé", "last": "Martin", "brand": "Ozone", "wing": "Zeno 2 MS", "type": "paraglider", "app": "MyVario 2.1" }
 ```
 
-`type`: `paraglider`, `hangglider`, `sailplane`, `paramotor`, `other`. `ids`: the pilot's identifiers on other networks,
+`brand`: the maker of the wing, `wing`: its model and size, both free text; show them together. A wing that only has
+`wing` (« Ozone Zeno 2 ») stays valid. `type`: `paraglider`, `hangglider`, `sailplane`, `paramotor`, `other`. `ids`: the pilot's identifiers on other networks,
 so that apps receiving several networks show them once: `{ "flarm": "DD1234", "fanet": "…", "ogn": "…", "puretrack": "…",
 "xcontest": "…" }` (10 at most, keys `[a-z0-9_-]`, send `{}` to clear them). `status` is set by the server (§7). On upload, missing fields keep their value, an
 empty string clears it; `name` (full name) is accepted instead of `first`/`last`. Send the profile with the first
@@ -136,7 +137,7 @@ Content-Encoding: gzip            (optional, recommended for a backlog)
   "device": "myvario-8f3k2m1x",
   "secret": "c2b6…",
   "app": "MyVario 2.1",
-  "pilot": { "first": "Zoé", "last": "Martin", "wing": "Ozone Zeno 2", "type": "paraglider" },
+  "pilot": { "first": "Zoé", "last": "Martin", "brand": "Ozone", "wing": "Zeno 2 MS", "type": "paraglider" },
   "points": [[1793440000, 45.90123, 6.12345, 1834, 10.4, 271, 1.2], …]
 }
 ```
@@ -184,7 +185,7 @@ Answer — an **update** (same shape as the WebSocket `upd`):
   "now": 1793440060,
   "pilots": [
     { "id": "42", "trail": true,
-      "p": { "first": "Zoé", "last": "Martin", "wing": "Ozone Zeno 2", "type": "paraglider", "app": "MyVario 2.1" },
+      "p": { "first": "Zoé", "last": "Martin", "brand": "Ozone", "wing": "Zeno 2 MS", "type": "paraglider", "app": "MyVario 2.1" },
       "pts": [[1793439460, 45.88, 6.10, 1702, 10.1, 265, 0.8], …] },
     { "id": "57", "pts": [[1793440057, 45.95, 6.21, 2210, 12.0, 90, -1.1]] },
     { "id": "61", "gone": true }
@@ -339,7 +340,7 @@ GET /api/v1/shared/<token>?since=1793440000
 ```
 
 ```json
-{ "p": { "first": "Zoé", "last": "Martin", "wing": "Ozone Zeno 2", "type": "paraglider" },
+{ "p": { "first": "Zoé", "last": "Martin", "brand": "Ozone", "wing": "Zeno 2 MS", "type": "paraglider" },
   "now": 1793440060,
   "pts": [[1793439460, 45.88, 6.10, 1702, 10.1, 265, 0.8], …] }
 ```
@@ -384,7 +385,7 @@ It needs no key and lists the pilots in `sos`, newest first, 200 at most:
 
 ```json
 { "now": 1793440060,
-  "pilots": [{ "p": { "first": "Zoé", "last": "Martin", "wing": "Ozone Zeno 2", "type": "paraglider" },
+  "pilots": [{ "p": { "first": "Zoé", "last": "Martin", "brand": "Ozone", "wing": "Zeno 2 MS", "type": "paraglider" },
                "t": 1793440000, "lat": 45.9, "lon": 6.1, "alt": 1420,
                "pts": [[1793438200, 45.88, 6.10, 1702, 10.1, 265, 0.8], …] }] }
 ```

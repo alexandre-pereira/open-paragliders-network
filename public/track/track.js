@@ -78,7 +78,7 @@ async function tick() {
     const who = [d.p.first, d.p.last].filter(Boolean).join(' ');
     $('name').textContent = who || T.title;
     document.title = who ? `${who} – ${T.title}` : T.title;
-    $('wing').textContent = d.p.wing;
+    $('wing').textContent = [d.p.brand, d.p.wing].filter(Boolean).join(' ');
     drawFlag(d.status);
     serverLag = Date.now() / 1000 - d.now;
     pts = full ? d.pts : pts.concat(d.pts);

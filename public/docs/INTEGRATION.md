@@ -77,7 +77,7 @@ The profile is what other pilots see. Send it with the first upload and whenever
 ```js
 const pilot = {
   first: 'Zoé', last: 'Martin',        // or name: 'Zoé Martin'
-  wing: 'Gin Leopard',
+  brand: 'Gin', wing: 'Leopard M',     // shown together: « Gin Leopard M »
   type: 'paraglider',                  // paraglider, hangglider, sailplane, paramotor, other
   ids: { flarm: 'DD1234' },            // optional, see « Avoid double pilots »
 };

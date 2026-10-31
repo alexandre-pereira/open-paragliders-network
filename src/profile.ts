@@ -1,4 +1,4 @@
-// Ce qu'un pilote montre aux autres : prénom, nom, voile, type d'aéronef, logiciel, ses identifiants sur les autres
+// Ce qu'un pilote montre aux autres : prénom, nom, marque et modèle de sa voile, type d'aéronef, logiciel, ses identifiants sur les autres
 // réseaux (une même personne ne fait qu'un chez ceux qui reçoivent plusieurs réseaux), et son état après le vol.
 
 export const TYPES = ['paraglider', 'hangglider', 'sailplane', 'paramotor', 'other'] as const;
@@ -7,7 +7,9 @@ export type AircraftType = (typeof TYPES)[number];
 export interface Profile {
   first: string;
   last: string;
-  /** voile (aile, planeur) utilisée, texte libre : « Ozone Zeno 2 » */
+  /** marque de la voile, texte libre : « Ozone » ; vide quand `wing` la dit déjà */
+  brand: string;
+  /** voile (aile, planeur) utilisée, texte libre : « Zeno 2 MS », ou « Ozone Zeno 2 » sans `brand` */
   wing: string;
   type: AircraftType;
   /** logiciel qui envoie : « WS Nav 1.4 », « XCSoar 7.43 » */
@@ -35,7 +37,7 @@ export function cleanIds(raw: unknown): Record<string, string> {
 }
 const idsText = (p: Profile) => JSON.stringify(p.ids ?? {});
 
-export const EMPTY_PROFILE: Profile = { first: '', last: '', wing: '', type: 'paraglider', app: '' };
+export const EMPTY_PROFILE: Profile = { first: '', last: '', brand: '', wing: '', type: 'paraglider', app: '' };
 
 /** texte nettoyé : sans caractères de contrôle, espaces resserrés, longueur bornée */
 export const clean = (v: unknown, max: number): string =>
@@ -52,6 +54,7 @@ export function mergeProfile(base: Profile, raw: unknown, app?: unknown): Profil
   const out: Profile = {
     first: pick(['first', 'firstName', 'firstname', 'prenom'], 40, base.first),
     last: pick(['last', 'lastName', 'lastname', 'nom'], 60, base.last),
+    brand: pick(['brand', 'make', 'marque'], 40, base.brand),
     wing: pick(['wing', 'glider', 'voile'], 60, base.wing),
     type: (TYPES as readonly string[]).includes(t) ? (t as AircraftType) : base.type,
     app: typeof app === 'string' && app.trim() ? clean(app, 40) : base.app,
@@ -67,7 +70,7 @@ export function mergeProfile(base: Profile, raw: unknown, app?: unknown): Profil
   return out;
 }
 
-export const sameProfile = (a: Profile, b: Profile) => a.first === b.first && a.last === b.last && a.wing === b.wing && a.type === b.type && a.app === b.app && idsText(a) === idsText(b);
+export const sameProfile = (a: Profile, b: Profile) => a.first === b.first && a.last === b.last && a.brand === b.brand && a.wing === b.wing && a.type === b.type && a.app === b.app && idsText(a) === idsText(b);
 
 /** vehicle type LiveTrack24 → le nôtre */
 export function lt24Type(v: unknown): AircraftType {

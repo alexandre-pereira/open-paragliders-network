@@ -20,7 +20,7 @@ function draw(d) {
   $('list').replaceChildren(...list.map(p => {
     const li = document.createElement('li'), name = document.createElement('b'), sub = document.createElement('small');
     name.textContent = [p.p.first, p.p.last].filter(Boolean).join(' ') || T.pilot;
-    sub.textContent = [p.p.wing, T.since.replace('{t}', span(d.now - p.t)), p.alt !== null ? T.alt.replace('{a}', Math.round(p.alt)) : ''].filter(Boolean).join(' · ');
+    sub.textContent = [[p.p.brand, p.p.wing].filter(Boolean).join(' '), T.since.replace('{t}', span(d.now - p.t)), p.alt !== null ? T.alt.replace('{a}', Math.round(p.alt)) : ''].filter(Boolean).join(' · ');
     li.append(name, sub);
     if (has(p)) {
       const a = document.createElement('a');

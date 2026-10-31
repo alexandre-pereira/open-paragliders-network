@@ -45,7 +45,10 @@ test('zones : boîte, antiméridien, rayon', () => {
 
 test('profil : prénom, nom, voile, nom complet', () => {
   const p = mergeProfile(EMPTY_PROFILE, { firstName: ' Alex ', lastName: 'Pereira', wing: 'Ozone\u0000 Zeno 2', type: 'hangglider' }, 'WS Nav 1.4');
-  assert.deepEqual(p, { first: 'Alex', last: 'Pereira', wing: 'Ozone Zeno 2', type: 'hangglider', app: 'WS Nav 1.4' });
+  assert.deepEqual(p, { first: 'Alex', last: 'Pereira', brand: '', wing: 'Ozone Zeno 2', type: 'hangglider', app: 'WS Nav 1.4' });
+  assert.equal(mergeProfile(p, { brand: ' Ozone ', wing: 'Zeno 2' }).brand, 'Ozone');
+  assert.equal(mergeProfile({ ...p, brand: 'Ozone' }, { wing: 'Zeno 2' }).brand, 'Ozone', 'marque absente : gardée');
+  assert.equal(mergeProfile({ ...p, brand: 'Ozone' }, { brand: '' }).brand, '', 'chaîne vide : effacée');
   assert.deepEqual(mergeProfile(p, { wing: 'Advance Omega' }).first, 'Alex', 'champ absent : gardé');
   assert.equal(mergeProfile(p, { name: 'Jean Dupont Durand' }).last, 'Dupont Durand');
   assert.equal(mergeProfile(p, { type: 'avion' }).type, 'hangglider');
