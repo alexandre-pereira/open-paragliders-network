@@ -9,7 +9,7 @@ import { statfsSync } from 'node:fs';
 import type { Config } from './config.ts';
 import { parseFix, wire, type NewFix } from './fix.ts';
 import { Live } from './live.ts';
-import { EMPTY_PROFILE, mergeProfile, sameProfile, type Profile } from './profile.ts';
+import { EMPTY_PROFILE, mergeProfile, sameProfile, type PilotStatus, type Profile } from './profile.ts';
 import type { PilotRow, Store } from './store.ts';
 
 export const DEVICE_RE = /^[A-Za-z0-9_.:@-]{6,80}$/;
@@ -18,6 +18,8 @@ export const SECRET_MIN = 16;
 export const SHARE_RE = /^[A-Za-z0-9_-]{22,64}$/;
 /** ce qu'un lien de suivi remonte (h), et un point par SHARED_STEP s dans cette trace */
 const SHARED_H = 24, SHARED_STEP = 5;
+/** la trace montrée avant une alerte (s) */
+const SOS_TRAIL_S = 1800;
 
 export class HttpError extends Error {
   readonly status: number;
@@ -72,6 +74,7 @@ export class Service {
     this.live = new Live(cfg.liveWindowMin * 60, store.maxSeq());
     for (const p of store.allPilots()) this.live.setPilot(p.pid, profileOf(p), p.pv, p.blocked);
     this.live.load(store.recent(Math.floor(this.now()) - cfg.liveWindowMin * 60));
+    for (const { pid, ...a } of store.allAlerts()) { const p = this.live.pilots.get(pid); if (p) this.live.setStatus(pid, a, p.pv); }
   }
 
   now() { return this.clock(); }
@@ -153,6 +156,52 @@ export class Service {
   }
 
   /**
+   * l'état du pilote, qu'il déclare : posé OK, posé pas OK (sos), ou plus rien (none : il a redécollé, ou il annule).
+   * Marqué sur sa trace à l'endroit donné, sinon à son dernier point. Renvoyer le même état est sans risque.
+   */
+  setStatus(body: Record<string, unknown>) {
+    const state = body.state;
+    if (state !== 'ok' && state !== 'sos' && state !== 'none') throw new HttpError(400, 'bad-state', 'state : ok, sos ou none');
+    const p = this.authDevice(body, { profile: mergeProfile(EMPTY_PROFILE, body.pilot, body.app) });
+    if (body.pilot !== undefined || body.app !== undefined) this.updateProfile(p, body.pilot, body.app);
+    const cur = this.live.pilots.get(p.pid)?.profile.status ?? null;
+    if (state === 'none') {
+      if (cur) this.apply(p.pid, null);
+      return { ok: true as const, pilot: String(p.pid) };
+    }
+    const num = (v: unknown, max: number) => (typeof v === 'number' && Number.isFinite(v) && Math.abs(v) <= max ? v : null);
+    const last = this.live.last(p.pid) ?? this.store.lastFix(p.pid);
+    const lat = num(body.lat, 90), lon = num(body.lon, 180), spot = lat !== null && lon !== null, nowS = Math.floor(this.now());
+    const t = typeof body.t === 'number' && body.t > nowS - this.cfg.retentionH * 3600 && body.t < nowS + 120 ? Math.floor(body.t) : nowS;
+    const next: PilotStatus = { state, t, lat: spot ? lat : last?.lat ?? null, lon: spot ? lon : last?.lon ?? null, alt: spot ? num(body.alt, 12000) : last?.alt ?? null };
+    if (!cur || cur.state !== next.state || cur.t !== next.t || cur.lat !== next.lat || cur.lon !== next.lon) this.apply(p.pid, next);
+    return { ok: true as const, pilot: String(p.pid) };
+  }
+
+  private apply(pid: number, status: PilotStatus | null) {
+    this.live.setStatus(pid, status, this.store.setAlert(pid, status));
+    this.onFixes?.();
+  }
+
+  /** le back-office retire une alerte */
+  clearStatus(pid: number) {
+    if (!this.store.pilotById(pid)) throw new HttpError(404, 'unknown-pilot');
+    this.apply(pid, null);
+  }
+
+  /** la page publique : seuls les pilotes qui ont dit « posé pas OK », avec leur trace récente ; rien d'autre */
+  sosList() {
+    const nowS = Math.floor(this.now()), pilots = [];
+    for (const p of this.live.pilots.values()) {
+      const s = p.profile.status;
+      if (p.blocked || s?.state !== 'sos') continue;
+      const { first, last, wing, type } = p.profile;
+      pilots.push({ p: { first, last, wing, type }, t: s.t, lat: s.lat, lon: s.lon, alt: s.alt, pts: this.store.track(p.pid, s.t - SOS_TRAIL_S, nowS + 120, 5000, SHARED_STEP).map(wire) });
+    }
+    return { now: nowS, pilots: pilots.sort((a, b) => b.t - a.t) };
+  }
+
+  /**
    * ce qu'un lien de suivi montre : le nom et la trace de ce seul pilote, des dernières SHARED_H heures au plus, sans
    * identifiant ni logiciel ; `since` : les points d'après cette heure. Sans jeton connu, la même réponse pour tous
    */
@@ -162,8 +211,8 @@ export class Service {
     if (pid === undefined || !p || p.blocked) throw new HttpError(404, 'unknown-link');
     const nowS = Math.floor(this.now()), oldest = nowS - Math.min(SHARED_H, this.cfg.retentionH) * 3600;
     const after = since !== null && since !== '' && Number.isFinite(Number(since)) ? Number(since) + 1 : null;
-    const { first, last, wing, type } = p.profile;
-    return { p: { first, last, wing, type }, now: nowS, pts: this.store.track(pid, Math.max(oldest, after ?? 0), nowS + 120, 100000, after === null ? SHARED_STEP : 0).map(wire) };
+    const { first, last, wing, type, status } = p.profile;
+    return { p: { first, last, wing, type }, ...(status ? { status } : {}), now: nowS, pts: this.store.track(pid, Math.max(oldest, after ?? 0), nowS + 120, 100000, after === null ? SHARED_STEP : 0).map(wire) };
   }
 
   /** le pilote efface tout ce que le serveur a de lui */
@@ -210,9 +259,11 @@ export class Service {
     const forgotten = this.store.forgetIdle(nowS - this.cfg.pilotTtlDays * 86400);
     for (const pid of forgotten) this.live.removePilot(pid);
     this.store.lt24Purge(nowS - 2 * 86400);
+    // un état dure autant que l'historique : une alerte n'est jamais retirée plus tôt sans que quelqu'un le décide
+    for (const pid of this.store.oldAlerts(this.oldest())) this.apply(pid, null);
     this.lastMaintenance = { at: nowS, purged, evicted, forgotten: forgotten.length, ms: Math.round(performance.now() - t0) };
     return this.lastMaintenance;
   }
 }
 
-export const profileOf = (p: PilotRow): Profile => ({ first: p.first, last: p.last, wing: p.wing, type: p.type, app: p.app });
+export const profileOf = (p: PilotRow): Profile => ({ first: p.first, last: p.last, wing: p.wing, type: p.type, app: p.app, ...(p.ids ? { ids: p.ids } : {}) });

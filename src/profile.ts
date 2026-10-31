@@ -1,4 +1,5 @@
-// Ce qu'un pilote montre aux autres : prénom, nom, voile, type d'aéronef, logiciel.
+// Ce qu'un pilote montre aux autres : prénom, nom, voile, type d'aéronef, logiciel, ses identifiants sur les autres
+// réseaux (une même personne ne fait qu'un chez ceux qui reçoivent plusieurs réseaux), et son état après le vol.
 
 export const TYPES = ['paraglider', 'hangglider', 'sailplane', 'paramotor', 'other'] as const;
 export type AircraftType = (typeof TYPES)[number];
@@ -11,7 +12,28 @@ export interface Profile {
   type: AircraftType;
   /** logiciel qui envoie : « WS Nav 1.4 », « XCSoar 7.43 » */
   app: string;
+  /** identifiants du pilote sur les autres réseaux : { flarm: 'DD1234', puretrack: '…' } */
+  ids?: Record<string, string>;
+  /** son état déclaré, absent en vol : gardé par le serveur à part du profil */
+  status?: PilotStatus;
 }
+
+/** ok : posé OK ; sos : posé pas OK, besoin d'aide */
+export type PilotState = 'ok' | 'sos';
+export interface PilotStatus { state: PilotState; t: number; lat: number | null; lon: number | null; alt: number | null }
+
+const MAX_IDS = 10;
+/** { réseau: identifiant } nettoyé ; un identifiant vide retire le réseau */
+export function cleanIds(raw: unknown): Record<string, string> {
+  const out: Record<string, string> = {};
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return out;
+  for (const [k, v] of Object.entries(raw)) {
+    const key = k.trim().toLowerCase(), id = clean(v, 60);
+    if (/^[a-z0-9_-]{2,20}$/.test(key) && id && Object.keys(out).length < MAX_IDS) out[key] = id;
+  }
+  return out;
+}
+const idsText = (p: Profile) => JSON.stringify(p.ids ?? {});
 
 export const EMPTY_PROFILE: Profile = { first: '', last: '', wing: '', type: 'paraglider', app: '' };
 
@@ -34,6 +56,8 @@ export function mergeProfile(base: Profile, raw: unknown, app?: unknown): Profil
     type: (TYPES as readonly string[]).includes(t) ? (t as AircraftType) : base.type,
     app: typeof app === 'string' && app.trim() ? clean(app, 40) : base.app,
   };
+  const ids = o.ids !== undefined ? cleanIds(o.ids) : base.ids;
+  if (ids && Object.keys(ids).length) out.ids = ids;
   // un nom complet seul (« Alex Pereira ») : le premier mot fait le prénom
   if (typeof o.name === 'string' && typeof o.first !== 'string' && typeof o.firstName !== 'string' && typeof o.last !== 'string' && typeof o.lastName !== 'string') {
     const name = clean(o.name, 100), sp = name.indexOf(' ');
@@ -43,7 +67,7 @@ export function mergeProfile(base: Profile, raw: unknown, app?: unknown): Profil
   return out;
 }
 
-export const sameProfile = (a: Profile, b: Profile) => a.first === b.first && a.last === b.last && a.wing === b.wing && a.type === b.type && a.app === b.app;
+export const sameProfile = (a: Profile, b: Profile) => a.first === b.first && a.last === b.last && a.wing === b.wing && a.type === b.type && a.app === b.app && idsText(a) === idsText(b);
 
 /** vehicle type LiveTrack24 → le nôtre */
 export function lt24Type(v: unknown): AircraftType {

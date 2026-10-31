@@ -7,6 +7,9 @@ h1 { margin: 0; font-size: 1.15rem; }
 p { margin: 2px 0 0; color: var(--soft); font-size: .9rem; }
 p:empty { display: none; }
 #state { color: var(--ink); font-weight: 600; }
+#flag { margin: 6px 0 2px; padding: 6px 8px; border-radius: 6px; font-weight: 700; color: #fff; background: #1a7f3c; }
+#flag.sos { background: #c8102e; }
+#flag[hidden] { display: none; }
 dl { display: flex; gap: 18px; margin: 8px 0 0; }
 dl[hidden] { display: none; }
 dt { color: var(--soft); font-size: .75rem; }

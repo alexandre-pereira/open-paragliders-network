@@ -90,7 +90,7 @@ Replace the stored token only after a `200`, and say so if it failed, because th
 
 ## Checklist before going live
 
-- [ ] Sharing is off until the pilot turns it on, and nothing is sent in simulation or replay.
+- [ ] Sharing is off until the pilot turns it on.
 - [ ] The pilot sees the name that is published, and can change it.
 - [ ] « Forget me » calls `POST /api/v1/forget` and drops the local token.
 - [ ] The pilot is told that anyone holding the tracking link sees their position and their last 24 h.

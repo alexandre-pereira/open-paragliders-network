@@ -6,7 +6,7 @@
 
 import { DatabaseSync, type StatementSync } from 'node:sqlite';
 import type { Fix, NewFix } from './fix.ts';
-import { EMPTY_PROFILE, type AircraftType, type Profile } from './profile.ts';
+import { EMPTY_PROFILE, type AircraftType, type PilotState, type PilotStatus, type Profile } from './profile.ts';
 
 export interface PilotRow extends Profile {
   pid: number;
@@ -30,6 +30,7 @@ CREATE TABLE IF NOT EXISTS pilots (
   wing TEXT NOT NULL DEFAULT '',
   type TEXT NOT NULL DEFAULT 'paraglider',
   app TEXT NOT NULL DEFAULT '',
+  ids TEXT NOT NULL DEFAULT '{}',
   pv INTEGER NOT NULL DEFAULT 1,
   blocked INTEGER NOT NULL DEFAULT 0,
   created INTEGER NOT NULL,
@@ -54,6 +55,14 @@ CREATE TABLE IF NOT EXISTS lt24 (
   pid INTEGER NOT NULL,
   at INTEGER NOT NULL
 );
+CREATE TABLE IF NOT EXISTS alerts (
+  pid INTEGER PRIMARY KEY,
+  state TEXT NOT NULL,
+  t INTEGER NOT NULL,
+  lat REAL,
+  lon REAL,
+  alt REAL
+);
 CREATE TABLE IF NOT EXISTS shares (
   pid INTEGER PRIMARY KEY,
   hash TEXT NOT NULL UNIQUE,
@@ -65,6 +74,7 @@ type Row = Record<string, unknown>;
 const toPilot = (r: Row): PilotRow => ({
   pid: r.pid as number, device: r.device as string, secret: r.secret as string,
   first: r.first as string, last: r.last as string, wing: r.wing as string, type: r.type as AircraftType, app: r.app as string,
+  ...(r.ids && r.ids !== '{}' ? { ids: JSON.parse(r.ids as string) as Record<string, string> } : {}),
   pv: r.pv as number, blocked: !!r.blocked, created: r.created as number, seen: r.seen as number,
 });
 const toFix = (r: Row): Fix => ({
@@ -96,12 +106,14 @@ export class Store {
     this.db.exec('PRAGMA busy_timeout = 5000');
     this.db.exec('PRAGMA cache_size = -16000');
     this.db.exec(SCHEMA);
+    // base d'avant les identifiants
+    if (!(this.db.prepare('PRAGMA table_info(pilots)').all() as Row[]).some(c => c.name === 'ids')) this.db.exec("ALTER TABLE pilots ADD COLUMN ids TEXT NOT NULL DEFAULT '{}'");
     const p = (k: string, sql: string) => { this.st[k] = this.db.prepare(sql); };
     p('byDevice', 'SELECT * FROM pilots WHERE device = ?');
     p('byId', 'SELECT * FROM pilots WHERE pid = ?');
-    p('newPilot', `INSERT INTO pilots (device, secret, first, last, wing, type, app, pv, blocked, created, seen)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, 1, 0, ?, ?) RETURNING *`);
-    p('profile', 'UPDATE pilots SET first = ?, last = ?, wing = ?, type = ?, app = ?, pv = pv + 1 WHERE pid = ? RETURNING pv');
+    p('newPilot', `INSERT INTO pilots (device, secret, first, last, wing, type, app, ids, pv, blocked, created, seen)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, 0, ?, ?) RETURNING *`);
+    p('profile', 'UPDATE pilots SET first = ?, last = ?, wing = ?, type = ?, app = ?, ids = ?, pv = pv + 1 WHERE pid = ? RETURNING pv');
     p('seen', 'UPDATE pilots SET seen = ? WHERE pid = ?');
     p('blocked', 'UPDATE pilots SET blocked = ? WHERE pid = ?');
     p('delPoints', 'DELETE FROM points WHERE pid = ?');
@@ -124,6 +136,11 @@ export class Store {
     p('sharePid', 'SELECT pid FROM shares WHERE hash = ?');
     p('sharePut', 'INSERT INTO shares (pid, hash, at) VALUES (?, ?, ?) ON CONFLICT (pid) DO UPDATE SET hash = excluded.hash, at = excluded.at');
     p('delShare', 'DELETE FROM shares WHERE pid = ?');
+    p('bump', 'UPDATE pilots SET pv = pv + 1 WHERE pid = ? RETURNING pv');
+    p('alertPut', `INSERT INTO alerts (pid, state, t, lat, lon, alt) VALUES (?, ?, ?, ?, ?, ?)
+                    ON CONFLICT (pid) DO UPDATE SET state = excluded.state, t = excluded.t, lat = excluded.lat, lon = excluded.lon, alt = excluded.alt`);
+    p('alertDel', 'DELETE FROM alerts WHERE pid = ?');
+    p('alertOld', 'SELECT pid FROM alerts WHERE t < ?');
   }
 
   close() { try { this.db.close(); } catch { /* déjà fermée */ } }
@@ -135,18 +152,30 @@ export class Store {
   allPilots(): PilotRow[] { return (this.db.prepare('SELECT * FROM pilots').all() as Row[]).map(toPilot); }
 
   createPilot(device: string, secret: string, p: Profile = EMPTY_PROFILE, now: number): PilotRow {
-    return toPilot(this.st.newPilot.get(device, secret, p.first, p.last, p.wing, p.type, p.app, now, now) as Row);
+    return toPilot(this.st.newPilot.get(device, secret, p.first, p.last, p.wing, p.type, p.app, JSON.stringify(p.ids ?? {}), now, now) as Row);
   }
   /** nouvelle version du profil */
   setProfile(pid: number, p: Profile): number {
-    return (this.st.profile.get(p.first, p.last, p.wing, p.type, p.app, pid) as Row).pv as number;
+    return (this.st.profile.get(p.first, p.last, p.wing, p.type, p.app, JSON.stringify(p.ids ?? {}), pid) as Row).pv as number;
   }
   touch(pid: number, now: number) { this.st.seen.run(now, pid); }
   setBlocked(pid: number, b: boolean) { this.st.blocked.run(b ? 1 : 0, pid); }
   /** le pilote et toute sa trace */
   deletePilot(pid: number) {
-    this.tx(() => { this.st.delPoints.run(pid); this.st.delLt24.run(pid); this.st.delShare.run(pid); this.st.delPilot.run(pid); });
+    this.tx(() => { this.st.delPoints.run(pid); this.st.delLt24.run(pid); this.st.delShare.run(pid); this.st.alertDel.run(pid); this.st.delPilot.run(pid); });
   }
+  /** état déclaré du pilote ; null : retiré. Nouvelle version du profil : les abonnés le reçoivent */
+  setAlert(pid: number, a: PilotStatus | null): number {
+    if (a) this.st.alertPut.run(pid, a.state, a.t, a.lat, a.lon, a.alt); else this.st.alertDel.run(pid);
+    return (this.st.bump.get(pid) as Row).pv as number;
+  }
+  allAlerts(): (PilotStatus & { pid: number })[] {
+    return (this.db.prepare('SELECT * FROM alerts').all() as Row[]).map(r => ({
+      pid: r.pid as number, state: r.state as PilotState, t: r.t as number, lat: r.lat as number | null, lon: r.lon as number | null, alt: r.alt as number | null,
+    }));
+  }
+  /** les pilotes dont l'état date d'avant `cutoff` */
+  oldAlerts(cutoff: number): number[] { return (this.st.alertOld.all(cutoff) as Row[]).map(r => r.pid as number); }
   /** le pilote d'un lien de suivi (empreinte du jeton) */
   sharePid(hash: string): number | undefined { return (this.st.sharePid.get(hash) as Row | undefined)?.pid as number | undefined; }
   /** le lien de suivi du pilote : un seul, le précédent cesse de marcher */

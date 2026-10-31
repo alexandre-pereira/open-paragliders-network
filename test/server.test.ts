@@ -85,6 +85,65 @@ test('lien de suivi : un par pilote, l’ancien meurt, ni clé ni autre pilote',
   assert.equal((await fetch(`${base}/api/v1/shared/${B}`)).status, 200);
 });
 
+test('posé pas OK : marqué sur la trace, public sur /sos, reçu sans nouveau point, annulé par le pilote', async () => {
+  const me = { device: 'alerte-pilote-1', secret: SECRET, pilot: { first: 'Paul', last: 'Rey', wing: 'Rush 6' } };
+  const t = now() - 20, token = 'd'.repeat(24);
+  await post('/api/v1/points', { ...me, points: [[t, 45.5, 6.5, 1500, 0, 0, 0]] });
+  await post('/api/v1/share', { ...me, token });
+  assert.equal((await post('/api/v1/status', { ...me, state: 'autre' })).status, 400);
+  assert.equal((await post('/api/v1/status', { ...me, state: 'sos' }, { 'X-App-Key': 'mauvaise' })).status, 401);
+  const sub = await client({});
+  sub.send({ op: 'sub', id: 9, center: [45.5, 6.5], radius: 20, every: 0.5 });
+  await sub.next(m => m.op === 'upd' && m.id === 9);
+
+  // personne à l'écoute d'autre chose : pas de point, et l'alerte arrive quand même
+  assert.equal((await post('/api/v1/status', { ...me, state: 'sos', t: t + 5, lat: 45.51, lon: 6.51, alt: 1450 })).status, 200);
+  const u = await sub.next(m => m.op === 'upd' && m.pilots.some((p: any) => p.p?.status?.state === 'sos'));
+  assert.deepEqual(u.pilots.find((p: any) => p.p?.status).p.status, { state: 'sos', t: t + 5, lat: 45.51, lon: 6.51, alt: 1450 });
+
+  // public, sans clé : le pilote, sa position, pas son appareil ni son logiciel
+  const list = await (await fetch(base + '/api/v1/sos')).json();
+  const mine = list.pilots.find((p: any) => p.p.first === 'Paul');
+  assert.equal(mine.lat, 45.51);
+  assert.ok(!JSON.stringify(list).includes('alerte-pilote'));
+  assert.equal((await fetch(base + '/sos')).status, 200);
+  assert.equal((await (await fetch(`${base}/api/v1/shared/${token}`)).json()).status.state, 'sos');
+
+  // posé OK : plus sur la page publique, toujours sur la trace
+  await post('/api/v1/status', { ...me, state: 'ok', t: t + 9 });
+  assert.equal((await (await fetch(base + '/api/v1/sos')).json()).pilots.some((p: any) => p.p.first === 'Paul'), false);
+  const ok = (await (await fetch(`${base}/api/v1/shared/${token}`)).json()).status;
+  assert.equal(ok.state, 'ok');
+  assert.equal(ok.lat, 45.5, 'sans position : son dernier point');
+
+  // il redécolle : plus rien, et un profil modifié ne ramène pas l'état
+  await post('/api/v1/status', { ...me, state: 'none' });
+  assert.equal((await (await fetch(`${base}/api/v1/shared/${token}`)).json()).status, undefined);
+  sub.ws.close();
+
+  // le back-office retire une alerte, et un pilote bloqué n'apparaît pas
+  await post('/api/v1/status', { ...me, state: 'sos' });
+  const h = { Authorization: `Bearer ${ADMIN}` };
+  const id = (await (await get('/api/v1/admin/pilots', h)).json()).pilots.find((p: any) => p.p.first === 'Paul').id;
+  assert.equal((await post(`/api/v1/admin/pilots/${id}/clear`, {}, h)).status, 200);
+  assert.equal((await (await fetch(base + '/api/v1/sos')).json()).pilots.some((p: any) => p.p.first === 'Paul'), false);
+});
+
+test('identifiants sur les autres réseaux : visibles des logiciels, pas du lien de suivi', async () => {
+  const me = { device: 'ids-pilote-1', secret: SECRET, pilot: { first: 'Inès', ids: { FLARM: 'DD1234', puretrack: 'abc', 'x y': 'non', vide: '' } } };
+  const token = 'e'.repeat(24);
+  await post('/api/v1/points', { ...me, points: [[now() - 5, 44, 5, 1000, 0, 0, 0]] });
+  await post('/api/v1/share', { ...me, token });
+  const id = (await (await post('/api/v1/pilot', me)).json()).pilot;
+  assert.deepEqual((await (await get(`/api/v1/pilots/${id}`)).json()).p.ids, { flarm: 'DD1234', puretrack: 'abc' });
+  assert.equal((await (await fetch(`${base}/api/v1/shared/${token}`)).json()).p.ids, undefined);
+  // un champ absent garde sa valeur, une liste vide efface
+  await post('/api/v1/pilot', { ...me, pilot: { wing: 'Zeno' } });
+  assert.deepEqual((await (await get(`/api/v1/pilots/${id}`)).json()).p.ids, { flarm: 'DD1234', puretrack: 'abc' });
+  await post('/api/v1/pilot', { ...me, pilot: { ids: {} } });
+  assert.equal((await (await get(`/api/v1/pilots/${id}`)).json()).p.ids, undefined);
+});
+
 test('clé de logiciel exigée', async () => {
   assert.equal((await get('/api/v1/live', {})).status, 401);
   assert.equal((await get('/api/v1')).status, 200, 'la description reste ouverte');

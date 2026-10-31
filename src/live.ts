@@ -5,7 +5,7 @@
 // complète (`reset`). Un pilote vu pour la première fois arrive avec sa trace (`trail`).
 
 import { inBox, wire, type BBox, type Fix, type WireFix } from './fix.ts';
-import type { Profile } from './profile.ts';
+import type { PilotStatus, Profile } from './profile.ts';
 
 export interface LivePilot {
   pid: number;
@@ -70,6 +70,8 @@ export class Live {
   seq: number;
   /** pilotes retirés : numéro au moment du retrait */
   private tombs: { at: number; pid: number }[] = [];
+  /** états changés (posé OK, SOS) : numéro au moment du changement */
+  private notes: { at: number; pid: number }[] = [];
 
   readonly windowS: number;
   readonly maxJournal: number;
@@ -85,11 +87,23 @@ export class Live {
     let p = this.pilots.get(pid);
     if (!p) { p = { pid, profile, pv, blocked, track: [] }; this.pilots.set(pid, p); }
     else {
-      p.profile = profile; p.pv = pv;
+      // l'état n'est pas dans le profil enregistré : il reste quand le profil change
+      p.profile = p.profile.status ? { ...profile, status: p.profile.status } : profile; p.pv = pv;
       if (blocked && !p.blocked) this.tombs.push({ at: this.seq, pid });
       p.blocked = blocked;
     }
     return p;
+  }
+
+  /** l'état du pilote a changé ; un pilote posé n'envoie plus de points : il part quand même aux abonnés (collect) */
+  setStatus(pid: number, status: PilotStatus | null, pv: number) {
+    const p = this.pilots.get(pid);
+    if (!p) return;
+    const { status: _old, ...profile } = p.profile;
+    p.profile = status ? { ...profile, status } : profile;
+    p.pv = pv;
+    this.notes.push({ at: this.seq, pid });
+    if (this.notes.length > 2000) this.notes.splice(0, 1000);
   }
 
   removePilot(pid: number) {
@@ -204,6 +218,18 @@ export class Live {
         if (!fresh(last) || !inBox(sub.bbox, last.lat, last.lon)) continue;
         if (opts.infer && this.hadAt(p, since, sub, nowS)) { sub.known.set(p.pid, -1); continue; }
         trailOf(p);
+      }
+    }
+
+    // 2 bis. un état changé sans point nouveau : aux abonnés qui suivent le pilote, et à ceux de la zone
+    for (const n of this.notes) {
+      const p = this.pilots.get(n.pid);
+      if (n.at < since || !p || !visible(p) || out.has(n.pid) || sub.known.get(n.pid) === p.pv) continue;
+      const last = p.track[p.track.length - 1], at = last ?? p.profile.status;
+      if (sub.known.has(n.pid)) out.set(n.pid, { id: String(n.pid) });
+      else if (at && at.lat !== null && at.lon !== null && inBox(sub.bbox, at.lat, at.lon)) {
+        if (last) trailOf(p);
+        else { out.set(n.pid, { id: String(n.pid) }); sub.known.set(n.pid, -1); }
       }
     }
 

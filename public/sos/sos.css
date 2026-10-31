@@ -1,0 +1,19 @@
+:root { --ink: #111; --soft: #555; --card: #fff; --sos: #c8102e; --line: #e2e4e9; }
+@media (prefers-color-scheme: dark) { :root { --ink: #f2f2f2; --soft: #aaa; --card: #181818; --sos: #ff5a6e; --line: #33373f; } }
+html, body { height: 100%; margin: 0; font: 16px/1.35 system-ui, sans-serif; color: var(--ink); background: var(--card); }
+body { display: flex; }
+#map { flex: 1; min-width: 0; }
+#panel { width: 340px; flex: none; padding: 14px; overflow: auto; }
+h1 { margin: 0; font-size: 1.2rem; color: var(--sos); }
+p { margin: 6px 0 0; color: var(--soft); font-size: .9rem; }
+#warn { font-weight: 600; color: var(--ink); }
+#list { list-style: none; margin: 12px 0 0; padding: 0; }
+#list li { padding: 10px 0; border-top: 1px solid var(--line); cursor: pointer; }
+#list b { display: block; }
+#list small { display: block; color: var(--soft); }
+#list a { color: var(--sos); font-size: .9rem; }
+.sos-dot { width: 18px; height: 18px; border: 3px solid #fff; border-radius: 50%; background: #c8102e; box-shadow: 0 0 0 4px rgba(200, 16, 46, .35); }
+@media (max-width: 700px) {
+  body { flex-direction: column-reverse; }
+  #panel { width: auto; max-height: 45vh; box-sizing: border-box; }
+}

@@ -85,6 +85,7 @@ export class Api {
       if (path === '/admin' && !url.pathname.endsWith('/')) return this.send(req, res, 302, '', { Location: '/admin/' });
       // la page d'un lien de suivi ; le jeton, lu dans l'adresse par la page, ne part jamais ailleurs (no-referrer)
       if (/^\/p\/[^/]+$/.test(path)) return this.static(req, res, '/track/index.html');
+      if (path === '/sos') return this.static(req, res, '/sos/index.html');
       return this.static(req, res, url.pathname);
     } catch (e) {
       if (e instanceof HttpError) return this.json(req, res, e.status, { ok: false, error: e.code, message: e.message });
@@ -107,6 +108,8 @@ export class Api {
     // un lien de suivi : le jeton suffit, ses lecteurs (les proches du pilote) n'ont pas de clé de logiciel
     const sm = /^\/api\/v1\/shared\/([^/]+)$/.exec(path);
     if (m === 'GET' && sm) return this.json(req, res, 200, svc.shared(sm[1], q.get('since')));
+    // les pilotes qui ont dit « posé pas OK » : public, pour que tout le monde puisse les voir
+    if (m === 'GET' && path === '/api/v1/sos') return this.json(req, res, 200, svc.sosList());
     // X-WSNav-Key : l'en-tête des autres serveurs WeSoar (src/core/services.ts de WS Nav, keyedRequest)
     const app = this.appOf(req.headers['x-app-key'] ?? req.headers['x-wsnav-key'] ?? q.get('key'));
     if (app === null) throw new HttpError(401, 'app-key-required', 'clé de logiciel absente ou inconnue (en-tête X-App-Key)');
@@ -119,6 +122,9 @@ export class Api {
       const body = await readJson(req);
       const p = svc.authDevice(body, { create: true });
       return this.json(req, res, 200, { ok: true, pilot: String(p.pid), p: svc.updateProfile(p, body.pilot, body.app) });
+    }
+    if (m === 'POST' && path === '/api/v1/status') {
+      return this.json(req, res, 200, svc.setStatus(await readJson(req)));
     }
     if (m === 'POST' && path === '/api/v1/share') {
       return this.json(req, res, 200, svc.share(await readJson(req)));
@@ -207,11 +213,12 @@ export class Api {
       if (!p) throw new HttpError(404, 'unknown-pilot');
       return { id: tm[1], p: p.profile, pts: thin(svc.store.track(p.pid, from, to, 500000), step).map(wire) };
     }
-    const pm = /^pilots\/(\d+)\/(block|delete|profile)$/.exec(path);
+    const pm = /^pilots\/(\d+)\/(block|delete|profile|clear)$/.exec(path);
     if (m === 'POST' && pm) {
       const pid = Number(pm[1]), body = await readJson(req);
       if (pm[2] === 'block') svc.block(pid, body.blocked !== false);
       else if (pm[2] === 'delete') svc.remove(pid);
+      else if (pm[2] === 'clear') svc.clearStatus(pid);
       else {
         const p = svc.store.pilotById(pid);
         if (!p) throw new HttpError(404, 'unknown-pilot');
