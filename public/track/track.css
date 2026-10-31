@@ -8,6 +8,7 @@ p { margin: 2px 0 0; color: var(--soft); font-size: .9rem; }
 p:empty { display: none; }
 #state { color: var(--ink); font-weight: 600; }
 dl { display: flex; gap: 18px; margin: 8px 0 0; }
+dl[hidden] { display: none; }
 dt { color: var(--soft); font-size: .75rem; }
 dd { margin: 0; font-weight: 700; font-variant-numeric: tabular-nums; }
 #maps { display: inline-block; margin-top: 8px; color: var(--line); font-size: .9rem; }

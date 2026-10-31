@@ -48,7 +48,12 @@ async function tick() {
     const r = await fetch(api + (full ? '' : '?since=' + pts[pts.length - 1][0]), { cache: 'no-store' });
     if (r.status === 404) {
       $('name').textContent = T.gone; $('wing').textContent = T.goneHint; $('state').textContent = '';
+      // le pilote vient peut-être de couper cet accès : plus rien de lui ne reste à l'écran
       $('figures').hidden = true; $('maps').hidden = true; marker.remove();
+      pts = [];
+      document.title = T.title;
+      if (loaded) map.getSource('track').setData({ type: 'FeatureCollection', features: [] });
+      map.jumpTo({ center: [6.1, 45.9], zoom: 5 });
       return;
     }
     const d = await r.json();
