@@ -123,6 +123,7 @@ class View3d {
   onRemove() { this.box.remove(); }
   set(on, first = false) {
     this.on = on;
+    this.onChange?.(on);
     this.btn.textContent = on ? '2D' : '3D';
     this.btn.title = on ? 'Revenir à la carte à plat' : 'Relief en 3D';
     this.map.setTerrain(on ? { source: 'dem-3d', exaggeration: EXAGGERATION } : null);

@@ -62,7 +62,9 @@ const map = new maplibregl.Map({
   attributionControl: { compact: true },
 });
 map.addControl(new maplibregl.NavigationControl({ visualizePitch: true }), 'top-right');
-map.addControl(new View3d(), 'top-right');
+const view3d = new View3d(), air3d = new Air3d();
+view3d.onChange = apply3d;
+map.addControl(view3d, 'top-right');
 map.addControl(new maplibregl.ScaleControl({ unit: 'metric' }), 'bottom-right');
 const mapReady = new Promise(ok => map.on('load', ok));
 
@@ -82,8 +84,23 @@ mapReady.then(() => {
     map.on('mouseenter', id, () => { map.getCanvas().style.cursor = 'pointer'; });
     map.on('mouseleave', id, () => { map.getCanvas().style.cursor = ''; });
   }
+  map.addLayer(air3d);
+  // en 3D les pilotes sont en l'air (air3d.js) : au sol il ne reste que leur ombre
+  map.on('click', e => { const id = air3d.on && air3d.pick(e.point, true); if (id) select(id, false); });
+  map.on('mousemove', e => { if (air3d.on) map.getCanvas().style.cursor = air3d.pick(e.point, false) ? 'pointer' : ''; });
+  apply3d(view3d.on);
   state.dirty = true;
 });
+
+/** les couches posées au sol selon la vue */
+function apply3d(on) {
+  air3d.setOn(!!on);
+  if (!map.getLayer('pos')) return;
+  map.setLayoutProperty('labels', 'visibility', on ? 'none' : 'visible');
+  map.setPaintProperty('tracks', 'line-opacity', on ? ['case', ['get', 'old'], 0.12, 0.25] : ['case', ['get', 'old'], 0.45, 0.9]);
+  map.setPaintProperty('pos', 'circle-opacity', on ? 0.35 : ['case', ['get', 'old'], 0.5, 1]);
+  map.setPaintProperty('pos', 'circle-stroke-width', on ? 0 : 2);
+}
 
 /** altitude → couleur (bleu en bas, rouge en haut) */
 const altColor = a => { const k = Math.max(0, Math.min(1, ((a ?? 0) - 500) / 3500)); return `hsl(${Math.round(230 - 230 * k)} 85% 45%)`; };
@@ -146,6 +163,10 @@ function render() {
     }
     map.getSource('tracks').setData({ type: 'FeatureCollection', features: lines });
     map.getSource('pos').setData({ type: 'FeatureCollection', features: points });
+    air3d.setData(list.map(p => {
+      const last = p.pts[p.pts.length - 1];
+      return { id: p.id, color: colorOf(p.id), sel: p.id === state.sel, old: nowS() - last[0] > OLD_S, pts: p.pts, label: labels ? `${nameOf(p)}${last[3] != null ? ` · ${last[3]} m` : ''}` : '' };
+    }), showTracks, byAlt ? f => altColor(Math.floor((f[3] ?? 0) / 250) * 250 + 125) : null);
   }
   if (state.sel) renderDetail();
   if (state.follow && state.sel) {

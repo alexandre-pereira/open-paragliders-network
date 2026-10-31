@@ -19,7 +19,7 @@ Le direct demande un processus qui tourne en permanence (WebSocket), donc un VPS
 | Pilotes | Prénom, nom, voile, type d'aéronef, logiciel : visibles des autres. Pas de compte : l'appareil choisit un identifiant et un secret, réservés au premier envoi. « Oublie-moi » efface tout. |
 | Historique | 72 h, puis effacé. Base bornée (`MAX_DB_MB`) et place libre gardée sur le disque (`MIN_FREE_DISK_MB`) : au-delà, les plus vieux points sont réécrits (la place libérée sert aux suivants, le fichier ne grossit plus). |
 | Lien de suivi | Un lien par pilote (`/p/<jeton>`), permanent, à partager aux proches : une carte en direct de ce seul pilote, 24 h au plus, sans appli ni compte. Le pilote peut le régénérer : l'ancien cesse de marcher tout de suite. Le jeton est tiré par l'appareil, le serveur n'en garde que l'empreinte. |
-| Back-office | `/admin/` : carte MapLibre de toutes les traces, avec le fond Terrain de WS Nav (teinte d'altitude, ombrage, courbes de niveau) et le relief en 3D (bouton 2D / 3D), période de 30 min à 72 h ou personnalisée, suivi en direct, recherche (nom, voile, logiciel, appareil), filtres type / vu depuis / altitude, couleur par pilote ou par altitude, fiche pilote, trace complète, export GPX, blocage, effacement ; état de la base et du disque. |
+| Back-office | `/admin/` : carte MapLibre de toutes les traces, avec le fond Terrain de WS Nav (teinte d'altitude, ombrage, courbes de niveau) et le relief en 3D où les pilotes et leurs traces sont à leur altitude réelle (bouton 2D / 3D), période de 30 min à 72 h ou personnalisée, suivi en direct, recherche (nom, voile, logiciel, appareil), filtres type / vu depuis / altitude, couleur par pilote ou par altitude, fiche pilote, trace complète, export GPX, blocage, effacement ; état de la base et du disque. |
 | Autres logiciels | Doc publique servie par le serveur (`/docs/` : [guide d'intégration](public/docs/INTEGRATION.md), [protocole](public/docs/PROTOCOL.md), [client d'exemple](public/docs/example.mjs)), GeoJSON (`/api/v1/live.geojson`), et **compatibilité LiveTrack24** : XCSoar, LK8000… envoient sans changement en réglant l'adresse du serveur. |
 
 Technique : Node.js 24, TypeScript exécuté tel quel (sans compilation), SQLite intégré à Node (`node:sqlite`, mode
@@ -103,7 +103,7 @@ src/service.ts   appareils et secrets, envoi, oubli, blocage, entretien chaque m
 src/http.ts      API HTTP, back-office, fichiers
 src/ws.ts        WebSocket
 src/lt24.ts      LiveTrack24
-public/admin/    carte du back-office (basemap.js : fond et relief)
+public/admin/    carte du back-office (basemap.js : fond et relief, air3d.js : pilotes en l'air en 3D)
 public/track/    page d'un lien de suivi
 public/docs/     doc des développeurs, servie à /docs/
 test/            tests (node --test)
