@@ -11,7 +11,8 @@
     "test": "node --disable-warning=ExperimentalWarning --test test/*.test.ts",
     "typecheck": "tsc --noEmit",
     "check": "npm run typecheck && npm test",
-    "sim": "node --disable-warning=ExperimentalWarning tools/simulate.ts"
+    "sim": "node --disable-warning=ExperimentalWarning tools/simulate.ts",
+    "local": "node --disable-warning=ExperimentalWarning tools/local.ts"
   },
   "dependencies": {
     "ws": "8.22.0"
