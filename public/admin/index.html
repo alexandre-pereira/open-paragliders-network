@@ -1,0 +1,93 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex, nofollow">
+  <title>Open Paragliders Network – back-office</title>
+  <link rel="stylesheet" href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css">
+  <link rel="stylesheet" href="admin.css">
+</head>
+<body>
+  <div id="login" class="overlay" hidden>
+    <form id="loginForm" class="card">
+      <h1>Open Paragliders Network</h1>
+      <p>Back-office : toutes les traces en ligne.</p>
+      <label>Mot de passe (ADMIN_TOKEN)<input id="token" type="password" autocomplete="current-password" required></label>
+      <button type="submit">Entrer</button>
+      <p id="loginErr" class="err"></p>
+    </form>
+  </div>
+
+  <aside id="side">
+    <header>
+      <h1>Open Paragliders Network</h1>
+      <span id="conn" class="dot" title="Liaison en direct"></span>
+      <button id="toggleSide" class="icon" title="Masquer le panneau">‹</button>
+    </header>
+    <section id="stats" class="stats"></section>
+
+    <section class="filters">
+      <label>Période
+        <select id="period">
+          <option value="1800">30 dernières minutes</option>
+          <option value="3600" selected>Dernière heure</option>
+          <option value="10800">3 h</option>
+          <option value="21600">6 h</option>
+          <option value="43200">12 h</option>
+          <option value="86400">24 h</option>
+          <option value="172800">48 h</option>
+          <option value="259200">72 h (tout l'historique)</option>
+          <option value="custom">Personnalisée…</option>
+        </select>
+      </label>
+      <div id="customRange" class="row" hidden>
+        <label>Du<input id="from" type="datetime-local"></label>
+        <label>Au<input id="to" type="datetime-local"></label>
+      </div>
+      <label class="check"><input id="live" type="checkbox" checked> Suivre en direct</label>
+      <label>Recherche<input id="q" type="search" placeholder="nom, voile, logiciel, n°"></label>
+      <div class="row">
+        <label>Vu depuis
+          <select id="active">
+            <option value="0">toujours</option>
+            <option value="300">5 min</option>
+            <option value="900">15 min</option>
+            <option value="3600">1 h</option>
+          </select>
+        </label>
+        <label>Alt. min (m)<input id="altMin" type="number" step="100" placeholder="—"></label>
+      </div>
+      <fieldset id="types">
+        <legend>Types</legend>
+        <label class="check"><input type="checkbox" value="paraglider" checked> Parapente</label>
+        <label class="check"><input type="checkbox" value="hangglider" checked> Delta</label>
+        <label class="check"><input type="checkbox" value="sailplane" checked> Planeur</label>
+        <label class="check"><input type="checkbox" value="paramotor" checked> Paramoteur</label>
+        <label class="check"><input type="checkbox" value="other" checked> Autre</label>
+      </fieldset>
+      <div class="row">
+        <label class="check"><input id="showTracks" type="checkbox" checked> Traces</label>
+        <label class="check"><input id="showLabels" type="checkbox" checked> Noms</label>
+        <label class="check"><input id="showBlocked" type="checkbox"> Bloqués</label>
+      </div>
+      <div class="row">
+        <label class="check"><input id="colorAlt" type="checkbox"> Couleur selon l'altitude</label>
+        <button id="fit" type="button">Tout voir</button>
+      </div>
+    </section>
+
+    <section class="list">
+      <h2><span id="count">0</span> pilotes</h2>
+      <ul id="pilots"></ul>
+    </section>
+  </aside>
+
+  <main id="map"></main>
+
+  <div id="detail" class="card detail" hidden></div>
+
+  <script src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
+  <script src="admin.js"></script>
+</body>
+</html>

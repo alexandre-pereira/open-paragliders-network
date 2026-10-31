@@ -1,0 +1,38 @@
+# Serveur de livetracking + Caddy (HTTPS automatique Let's Encrypt, HTTP/2, WebSocket).
+#   cp deploy/.env.example deploy/.env   # puis remplir
+#   docker compose -f deploy/docker-compose.yml --env-file deploy/.env up -d --build
+services:
+  live:
+    build: ..
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      DATA_DIR: /data
+      PORT: "8080"
+      TRUST_PROXY: "1"
+    volumes:
+      - live-data:/data
+    expose:
+      - "8080"
+    stop_grace_period: 20s
+
+  caddy:
+    image: caddy:2.10-alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    environment:
+      LIVE_DOMAIN: ${LIVE_DOMAIN}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    depends_on:
+      - live
+
+volumes:
+  live-data:
+  caddy-data:
+  caddy-config:

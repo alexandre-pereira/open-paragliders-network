@@ -1,0 +1,24 @@
+{
+  "name": "open-paragliders-network",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Serveur de livetracking ouvert du vol libre : positions des pilotes en direct, trace rejouée après une coupure réseau, 72 h d'historique, carte de back-office",
+  "type": "module",
+  "engines": { "node": ">=22.18" },
+  "scripts": {
+    "start": "node --disable-warning=ExperimentalWarning src/server.ts",
+    "dev": "node --disable-warning=ExperimentalWarning --watch src/server.ts",
+    "test": "node --disable-warning=ExperimentalWarning --test test/*.test.ts",
+    "typecheck": "tsc --noEmit",
+    "check": "npm run typecheck && npm test",
+    "sim": "node --disable-warning=ExperimentalWarning tools/simulate.ts"
+  },
+  "dependencies": {
+    "ws": "8.22.0"
+  },
+  "devDependencies": {
+    "@types/node": "22.18.12",
+    "@types/ws": "8.18.1",
+    "typescript": "5.9.3"
+  }
+}

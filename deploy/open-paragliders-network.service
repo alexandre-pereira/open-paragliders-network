@@ -1,0 +1,26 @@
+# Sans Docker : systemd + Node 24 (Caddy ou nginx devant pour le HTTPS, voir README.md).
+#   sudo cp deploy/open-paragliders-network.service /etc/systemd/system/ && sudo systemctl enable --now open-paragliders-network
+[Unit]
+Description=Open Paragliders Network (livetracking)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=opn
+WorkingDirectory=/opt/open-paragliders-network
+EnvironmentFile=/etc/open-paragliders-network.env
+Environment=DATA_DIR=/var/lib/open-paragliders-network HOST=127.0.0.1 PORT=8080 TRUST_PROXY=1
+ExecStart=/usr/bin/node --disable-warning=ExperimentalWarning src/server.ts
+Restart=always
+RestartSec=2
+TimeoutStopSec=20
+StateDirectory=open-paragliders-network
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+ReadWritePaths=/var/lib/open-paragliders-network
+LimitNOFILE=65536
+
+[Install]
+WantedBy=multi-user.target

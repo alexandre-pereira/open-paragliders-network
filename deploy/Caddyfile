@@ -1,0 +1,26 @@
+{$LIVE_DOMAIN} {
+	encode zstd gzip
+	# les WebSocket passent tels quels ; pas de délai de lecture : une connexion vit des heures
+	reverse_proxy live:8080 {
+		flush_interval -1
+		transport http {
+			read_timeout 0
+			keepalive 120s
+		}
+	}
+	header {
+		Strict-Transport-Security "max-age=31536000"
+		-Server
+	}
+	log {
+		output stdout
+		# pas de chaîne de requête dans les journaux (clé ?key=, mots de passe LiveTrack24)
+		format filter {
+			request>uri query {
+				delete key
+				delete pass
+				delete user
+			}
+		}
+	}
+}
