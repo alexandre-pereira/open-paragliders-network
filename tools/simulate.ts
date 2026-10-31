@@ -1,9 +1,9 @@
 // Pilotes simulés, autour d'Annecy par défaut, pour essayer le serveur et la carte du back-office.
 //   node tools/simulate.ts [adresse] [pilotes] [clé] [lat] [lon]
 //   node tools/simulate.ts http://localhost:8080 12
-// Chaque pilote fait ce qu'un vrai client doit faire (docs/PROTOCOL.md, « Envoyer ») : un point toutes les 3 s dans
-// une file, un envoi toutes les 6 s de toute la file, la file gardée tant que le serveur n'a pas répondu ; des
-// coupures de réseau au hasard (20 à 90 s) montrent la trace rattrapée d'un coup.
+// Chaque pilote fait ce qu'un vrai client doit faire (docs/PROTOCOL.md, « Envoyer ») : un point dans une file, ici
+// chaque seconde (le plus fin que le serveur garde), un envoi toutes les 6 s de toute la file, la file gardée tant que
+// le serveur n'a pas répondu ; des coupures de réseau au hasard (20 à 90 s) montrent la trace rattrapée d'un coup.
 
 const base = process.argv[2] ?? 'http://localhost:8080';
 const n = Number(process.argv[3] ?? 8);
@@ -25,15 +25,15 @@ const sims: Sim[] = Array.from({ length: n }, (_, i) => ({
 setInterval(() => {
   const t = Math.floor(Date.now() / 1000);
   for (const s of sims) {
-    s.hdg += (Math.random() - 0.4) * 25;
+    s.hdg += (Math.random() - 0.4) * 8;
     const spd = 9 + Math.random() * 3, vz = Math.sin(t / 60 + s.lat * 100) * 2;
-    s.lat += (spd * 3 * Math.cos((s.hdg * Math.PI) / 180)) / 111320;
-    s.lon += (spd * 3 * Math.sin((s.hdg * Math.PI) / 180)) / (111320 * Math.cos((s.lat * Math.PI) / 180));
-    s.alt = Math.max(500, s.alt + vz * 3);
+    s.lat += (spd * Math.cos((s.hdg * Math.PI) / 180)) / 111320;
+    s.lon += (spd * Math.sin((s.hdg * Math.PI) / 180)) / (111320 * Math.cos((s.lat * Math.PI) / 180));
+    s.alt = Math.max(500, s.alt + vz);
     s.queue.push([t, +s.lat.toFixed(6), +s.lon.toFixed(6), Math.round(s.alt), +spd.toFixed(1), Math.round(((s.hdg % 360) + 360) % 360), +vz.toFixed(1)]);
-    if (Math.random() < 0.004) { s.cutUntil = Date.now() + 20000 + Math.random() * 70000; console.log(`${s.device} : coupure réseau`); }
+    if (Math.random() < 0.0013) { s.cutUntil = Date.now() + 20000 + Math.random() * 70000; console.log(`${s.device} : coupure réseau`); }
   }
-}, 3000);
+}, 1000);
 
 setInterval(async () => {
   for (const s of sims) {
