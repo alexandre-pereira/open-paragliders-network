@@ -13,7 +13,8 @@ What your app gets:
 - no accounts to run: a device identifies itself.
 
 There is no SDK to install: JSON over HTTP and one WebSocket. A first version takes about a page of code, and
-[example.mjs](/docs/example.mjs) is a complete working client. The details are in the [protocol](#protocol).
+[example.mjs](/docs/example.mjs) is a complete working client. The details are in the [protocol](#protocol), and the
+[server's source](https://github.com/alexandre-pereira/open-paragliders-network) is public.
 
 ## Already speaking LiveTrack24?
 

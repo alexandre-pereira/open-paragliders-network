@@ -1,8 +1,7 @@
 name: CI
-# Pas à chaque push : les minutes GitHub Actions sont partagées entre tous les dépôts privés.
 on:
+  push:
   pull_request:
-  workflow_dispatch:
 jobs:
   check:
     runs-on: ubuntu-latest

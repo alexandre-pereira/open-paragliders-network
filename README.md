@@ -1,11 +1,13 @@
 # Open Paragliders Network
 
+> One live-tracking server for every paragliding app. Developers: start with the
+> [integration guide](public/docs/INTEGRATION.md) and the [protocol](public/docs/PROTOCOL.md).
+
 Un seul serveur de livetracking pour tous les logiciels de vol libre : chaque pilote envoie sa position, tous
 reçoivent en direct les pilotes autour d'eux **avec leur trace**, et rien ne se perd quand le réseau coupe.
 Une carte de back-office montre et filtre toutes les traces en ligne.
 
-Serveur à part des obstacles (`ws-nav-server`, hébergement mutualisé OVH en PHP) : le direct demande un processus
-qui tourne en permanence (WebSocket), donc un VPS.
+Le direct demande un processus qui tourne en permanence (WebSocket), donc un VPS plutôt qu'un hébergement mutualisé.
 
 ## Ce qu'il fait
 
@@ -60,13 +62,13 @@ la clé, et le mot de passe du back-office (aussi dans `data/local.txt`). Clé e
 
 ## Déployer (VPS)
 
-Un petit VPS suffit (1 vCPU, 1–2 Go de RAM, 20 Go de disque), par exemple un VPS OVH à côté de l'hébergement
-mutualisé de `nav.wesoar.fr`. Sous-domaine conseillé : `live.wesoar.fr` (enregistrement A/AAAA vers le VPS).
+Un petit VPS suffit (1 vCPU, 1–2 Go de RAM, 20 Go de disque), sous Debian par exemple, avec un sous-domaine
+(enregistrement A/AAAA vers le VPS).
 
 **Docker (conseillé)** — Caddy devant, HTTPS automatique :
 
 ```bash
-git clone git@github.com:alexandre-pereira/open-paragliders-network.git && cd open-paragliders-network
+git clone https://github.com/alexandre-pereira/open-paragliders-network.git && cd open-paragliders-network
 cp deploy/.env.example deploy/.env      # domaine, APP_KEYS (openssl rand -hex 24), ADMIN_TOKEN (openssl rand -base64 32)
 docker compose -f deploy/docker-compose.yml --env-file deploy/.env up -d --build
 ```
@@ -87,8 +89,7 @@ d'appareils réservés sont dans la même base.
   (`VITE_LIVE_SERVER`), voir le dépôt `ws-nav`.
 - **XCSoar / LK8000** : suivi LiveTrack24, serveur = le nom de domaine, utilisateur et mot de passe au choix (réservés
   au premier usage).
-- **Tout autre logiciel** : `https://<serveur>/docs/` (en anglais, pour les développeurs d'autres apps : le dépôt est
-  privé, la doc non).
+- **Tout autre logiciel** : `https://<serveur>/docs/` (en anglais, pour les développeurs d'autres apps).
 
 ## Organisation
 
