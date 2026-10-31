@@ -16,7 +16,24 @@ Design goals, in order:
 3. **Simple to implement.** JSON only, a dozen fields.
 
 Base URL: `https://<server>` (given with your app key). Everything is UTF-8 JSON. Times are Unix
-seconds (UTC). CORS is open.
+seconds (UTC). CORS is open, except on the back-office.
+
+### At a glance
+
+| Request | Key | |
+|---|---|---|
+| `GET /api/v1` | no | server description, limits, operator's `contact` |
+| `POST /api/v1/points` | yes | send fixes |
+| `POST /api/v1/pilot` | yes | change the profile |
+| `GET /api/v1/live` | yes | the pilots around (polling) |
+| `GET /api/v1/live.geojson` | yes | the same in GeoJSON |
+| `GET /api/v1/pilots/{id}`, `/track` | yes | one pilot, their stored track |
+| `wss://<server>/api/v1/ws` | yes | everything above, pushed |
+| `POST /api/v1/share` | yes | create or replace the tracking link |
+| `GET /api/v1/shared/{token}` | token | what a tracking link shows |
+| `POST /api/v1/status` | yes | landed OK, needs help |
+| `GET /api/v1/sos` | no | the pilots who need help |
+| `POST /api/v1/forget` | yes | erase everything about a pilot |
 
 ---
 
@@ -225,7 +242,16 @@ Text frames, one JSON object each, with `op`. Any request may carry an `id`, ech
 | `upd` | an update (§3). On `sub` it is a snapshot (or the delta since `since`); then only what is new |
 | `ack` | result of `pts` / `pilot` |
 | `pong` | |
-| `err` | `code`, `message`, `id` — the connection stays open, except `app-key-required` (close 4001) and `admin-required` (4003) |
+| `err` | `code`, `message`, `id` — the connection stays open, except for the close codes below |
+
+### Close codes
+
+| Code | Meaning |
+|---|---|
+| `4001` | key missing, wrong or revoked, or no `hello` within 10 s |
+| `4003` | back-office password refused, or address banned |
+| `4008` | too many messages on this connection |
+| `1012` | the server restarts: reconnect with your cursor |
 
 ### Keeping it fast and safe on a mobile link
 
@@ -364,10 +390,14 @@ HTTP errors are JSON: `{ "ok": false, "error": "<code>", "message": "…" }`.
 | status | code | what to do |
 |---|---|---|
 | 400 | `bad-json`, `bad-device`, `bad-secret`, `bad-points`, `bad-area`, `bad-token`, `bad-state` | fix the request; drop the batch |
-| 401 | `app-key-required` | key missing or unknown |
+| 401 | `app-key-required` | key missing, unknown or revoked |
+| 401 | `device-required` | WebSocket: `pts` or `pilot` without `device` and `secret` in `hello` |
 | 403 | `device-taken` | wrong secret for this device: new device id |
-| 403 | `blocked` | pilot blocked by the operator |
+| 403 | `blocked` | device banned by the operator: stop sending. `POST /api/v1/forget` still works |
+| 403 | `banned` | address banned by the operator for 24 h: stop sending |
+| 400 | `unknown-op`, `bad-message`, `bad-gzip` | fix the request |
 | 404 | `unknown-link` | tracking link replaced, erased or unknown |
+| 404 | `unknown-device` | `forget`: this device is not known |
 | 409 | `token-taken` | this token belongs to another pilot: draw a new one |
 | 413 | `too-many-points`, `body-too-large` | smaller batches |
 | 429 | `rate-limited` | wait a minute; keep the queue |
@@ -375,7 +405,27 @@ HTTP errors are JSON: `{ "ok": false, "error": "<code>", "message": "…" }`.
 
 ---
 
-## 9. Privacy
+## 9. Limits
+
+Defaults; an operator can change them. `GET /api/v1` gives the ones marked *(info)*.
+
+| Limit | Default |
+|---|---|
+| HTTP requests per address | 600 per minute |
+| New devices per address | 20 per minute |
+| WebSocket connections per address | 20 |
+| WebSocket messages per connection | 600 per minute |
+| Fixes per upload *(info: `maxBatch`)* | 5000 |
+| Request size | 4 MB, gzip accepted |
+| Shortest push period *(info: `minEvery`)* | 1 s |
+| Trail, and resuming after a cut *(info: `liveWindowS`)* | 1 h |
+| History *(info: `retentionH`)* | 72 h |
+
+A mobile operator shares one address between many phones: on `429`, keep your queue and wait.
+
+---
+
+## 10. Privacy
 
 Fixes are kept 72 h (less when the disk is full: the oldest go first), then deleted. A profile without any fix is
 forgotten after 90 days. `POST /api/v1/forget` deletes everything at once. Apps must let the pilot choose to share,

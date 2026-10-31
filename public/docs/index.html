@@ -3,27 +3,60 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="Connect your flight app to one live-tracking network shared by every paragliding app.">
   <title>Open Paragliders Network – developers</title>
   <style>
     :root { --ink: #16181d; --soft: #5a6270; --bg: #fff; --code: #f3f4f6; --line: #e2e4e9; --link: #0047ff; }
     @media (prefers-color-scheme: dark) { :root { --ink: #eceef2; --soft: #a0a7b4; --bg: #15171b; --code: #22252b; --line: #33373f; --link: #7ea2ff; } }
+    * { box-sizing: border-box; }
+    html { scroll-padding-top: 92px; }
     body { margin: 0; background: var(--bg); color: var(--ink); font: 16px/1.6 system-ui, sans-serif; }
-    nav { position: sticky; top: 0; display: flex; gap: 20px; padding: 12px 16px; background: var(--bg); border-bottom: 1px solid var(--line); }
-    nav a { color: var(--soft); text-decoration: none; font-weight: 600; }
-    nav a.on { color: var(--ink); }
-    main { max-width: 760px; margin: 0 auto; padding: 8px 16px 64px; overflow-wrap: anywhere; }
-    h1 { line-height: 1.2; } h2 { margin-top: 2em; } a { color: var(--link); }
+    .top { position: sticky; top: 0; z-index: 2; display: flex; flex-wrap: wrap; align-items: center; gap: 4px 20px; padding: 10px 16px; background: var(--bg); border-bottom: 1px solid var(--line); }
+    .top b { margin-right: auto; }
+    .top a { color: var(--soft); text-decoration: none; font-weight: 600; }
+    .top a.on { color: var(--ink); }
+    .page { display: grid; grid-template-columns: minmax(0, 1fr); gap: 32px; max-width: 1060px; margin: 0 auto; padding: 8px 16px 64px; }
+    #toc { font-size: .9rem; }
+    #toc summary { padding: 8px 0; font-weight: 600; cursor: pointer; }
+    #toc ol { margin: 0; padding: 0; list-style: none; }
+    #toc a { display: block; padding: 3px 0; color: var(--soft); text-decoration: none; }
+    #toc a.sub { padding-left: 14px; font-size: .85rem; }
+    #toc a:hover { color: var(--ink); }
+    main { min-width: 0; overflow-wrap: anywhere; }
+    h1 { line-height: 1.2; }
+    h2 { margin-top: 2em; line-height: 1.25; }
+    h2 a.anchor, h3 a.anchor { margin-left: 6px; color: var(--soft); text-decoration: none; opacity: 0; }
+    h2:hover a.anchor, h3:hover a.anchor { opacity: 1; }
+    a { color: var(--link); }
     code { padding: 1px 4px; background: var(--code); border-radius: 4px; font-size: .9em; }
-    pre { padding: 12px; overflow-x: auto; background: var(--code); border-radius: 8px; }
-    pre code { padding: 0; background: none; }
-    table { display: block; overflow-x: auto; border-collapse: collapse; }
-    th, td { padding: 6px 10px; border: 1px solid var(--line); text-align: left; vertical-align: top; }
+    pre { position: relative; padding: 32px 12px 12px; overflow-x: auto; background: var(--code); border-radius: 8px; }
+    pre code { padding: 0; background: none; overflow-wrap: normal; }
+    pre button { position: absolute; top: 6px; right: 6px; padding: 2px 8px; font: 12px system-ui; color: var(--soft); background: var(--bg); border: 1px solid var(--line); border-radius: 6px; cursor: pointer; }
+    table { display: block; max-width: 100%; overflow-x: auto; border-collapse: collapse; }
+    th, td { padding: 6px 10px; border: 1px solid var(--line); text-align: left; vertical-align: top; overflow-wrap: normal; }
+    li:has(> input[type=checkbox]) { list-style: none; margin-left: -1.2em; }
     hr { border: 0; border-top: 1px solid var(--line); margin: 2em 0; }
+    @media (min-width: 900px) {
+      html { scroll-padding-top: 64px; }
+      .page { grid-template-columns: 230px minmax(0, 1fr); }
+      #toc { order: -1; }
+      #toc details { position: sticky; top: 64px; max-height: calc(100vh - 80px); overflow: auto; }
+      #toc summary { display: none; }
+    }
   </style>
 </head>
 <body>
-  <nav><a href="#integration">Connect your app</a><a href="#protocol">Protocol</a><a href="/docs/example.mjs">example.mjs</a></nav>
-  <main id="doc"></main>
+  <nav class="top">
+    <b>Open Paragliders Network</b>
+    <a href="#integration">Connect your app</a>
+    <a href="#protocol">Protocol</a>
+    <a href="/docs/example.mjs">Example client</a>
+    <a href="https://github.com/alexandre-pereira/open-paragliders-network">GitHub</a>
+  </nav>
+  <div class="page">
+    <aside id="toc"><details open><summary>On this page</summary><ol id="tocList"></ol></details></aside>
+    <main id="doc"></main>
+  </div>
   <script src="https://unpkg.com/marked@12.0.2/marked.min.js" integrity="sha384-/TQbtLCAerC3jgaim+N78RZSDYV7ryeoBCVqTuzRrFec2akfBkHS7ACQ3PQhvMVi" crossorigin="anonymous"></script>
   <script src="/docs/docs.js"></script>
 </body>
