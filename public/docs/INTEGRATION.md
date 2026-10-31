@@ -17,23 +17,18 @@ There is no SDK: it is JSON over HTTP and one WebSocket. Every step below is imp
 
 ## How it works
 
-```
- your app                                  server
- ────────                                  ──────
- fix every 3 s ──► local queue
-                     │  hello, then pts ──────►  stored, sent to the pilots around
-                     ◄────────────── ack         the fixes leave the queue only now
- subscribe to an area ───────────────────►
- merge by time ◄──────────────────── upd         pushed every 3 s, with a cursor (seq)
+Your app and the server do four things. With the screen on, all of it goes over one WebSocket.
 
- ── network cut ──
- fixes wait in the queue
- reconnect, sub with since: <seq> ───────►
- queue goes out ◄──────────────────── upd        exactly what was missed
-```
+1. **Keep a queue.** Record a fix every few seconds in a local queue. A fix stays there until the server has confirmed it.
+2. **Send the queue.** Say `hello`, then send the waiting fixes with `pts`. The server stores them, passes them to the
+   pilots around and answers `ack`. Only then remove them from the queue.
+3. **Receive the pilots around.** Subscribe to an area with `sub`. The server pushes an `upd` every 3 s by default, with
+   a cursor, `seq`. Keep the last cursor and merge the fixes by time.
+4. **Recover from a cut.** While the network is down, the fixes wait in the queue. Once back, subscribe with
+   `since: <seq>`: the server sends exactly what you missed, and your queue goes out.
 
-Screen on, one WebSocket does everything. Screen off, close it to save the battery and use HTTP: upload by batches and
-poll with the same cursor. Nothing is lost when you switch.
+With the screen off, close the WebSocket to save the battery and use HTTP: upload batches and poll with the same cursor.
+Nothing is lost when you switch.
 
 ## Before you start
 
