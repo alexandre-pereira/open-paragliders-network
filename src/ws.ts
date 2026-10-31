@@ -97,14 +97,15 @@ export class LiveSocket {
     const svc = this.svc;
     const op = m.op;
     if (op === 'hello') {
+      // le back-office n'a pas de clé de logiciel : son mot de passe tient lieu de clé
+      if (m.admin !== undefined) {
+        if (this.api.adminLocked(c.ip) || !this.api.isAdmin(m.admin, c.ip)) { this.err(c, 'admin-required'); c.ws.close(4003, 'admin-required'); return; }
+        c.admin = true; c.ok = true;
+      }
       if (!c.ok) {
         const app = this.api.appOf(m.key);
         if (app === null) { this.err(c, 'app-key-required'); c.ws.close(4001, 'app-key-required'); return; }
         c.ok = true; c.app = app;
-      }
-      if (m.admin !== undefined) {
-        if (this.api.adminLocked(c.ip) || !this.api.isAdmin(m.admin, c.ip)) { this.err(c, 'admin-required'); c.ws.close(4003, 'admin-required'); return; }
-        c.admin = true;
       }
       if (m.device !== undefined) {
         c.pilot = svc.authDevice(m);

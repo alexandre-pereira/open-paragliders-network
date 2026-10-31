@@ -209,7 +209,9 @@ test('back-office : mot de passe, traces, blocage', async () => {
   assert.equal((await post(`/api/v1/admin/pilots/${zoe.id}/block`, { blocked: true }, h)).status, 200);
   const snap = await (await get('/api/v1/live')).json();
   assert.equal(snap.pilots.find((p: any) => p.id === zoe.id), undefined);
-  const admin = await client({ admin: ADMIN });
+  // comme le back-office : le mot de passe, sans clé de logiciel
+  const admin = await client({ key: undefined, admin: ADMIN });
+  assert.equal(admin.welcome.op, 'welcome');
   admin.send({ op: 'sub', id: 3 });
   const u = await admin.next(m => m.op === 'upd' && m.id === 3);
   assert.equal(u.pilots.find((p: any) => p.id === zoe.id)?.blocked, true);
