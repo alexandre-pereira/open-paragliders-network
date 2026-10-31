@@ -26,6 +26,8 @@ Technique : Node.js 24, TypeScript exécuté tel quel (sans compilation), SQLite
 WAL), une seule dépendance (`ws`). Un processus tient des milliers de pilotes : la fenêtre du direct (1 h) est en
 mémoire, la base ne sert qu'à l'historique et au redémarrage.
 
+Sécurité : voir [SECURITY.md](SECURITY.md).
+
 ## Lancer
 
 ```bash
@@ -46,7 +48,7 @@ la clé, et le mot de passe du back-office (aussi dans `data/local.txt`). Clé e
 |---|---|---|
 | `PORT`, `HOST` | `8080`, `0.0.0.0` | |
 | `DATA_DIR` | `./data` | dossier de la base `live.db` |
-| `APP_KEYS` | vide | clés des logiciels : `wsnav:clé1,xcsoar:clé2`. **Vide = serveur ouvert à tous** (développement) |
+| `APP_KEYS` | vide | clés fixes : `wsnav:clé1,xcsoar:clé2`. Les autres se créent au back-office (⚙). **Aucune clé nulle part = serveur ouvert à tous** (développement) |
 | `ADMIN_TOKEN` | vide | mot de passe du back-office ; vide = fermé |
 | `CONTACT` | vide | où demander une clé de logiciel, public dans `GET /api/v1` |
 | `RETENTION_HOURS` | `72` | historique gardé |
@@ -59,6 +61,7 @@ la clé, et le mot de passe du back-office (aussi dans `data/local.txt`). Clé e
 | `TRUST_PROXY` | `0` | `1` derrière Caddy / nginx (IP du client dans `X-Forwarded-For`) |
 | `PILOT_TTL_DAYS` | `90` | un pilote sans aucun point depuis ce délai est oublié |
 | `RATE_HTTP_PER_MIN`, `MAX_WS_PER_IP`, `MAX_BATCH` | `600`, `20`, `5000` | limites |
+| `RATE_NEW_DEVICE_PER_MIN`, `MAX_WS_PER_MIN` | `20`, `600` | appareils nouveaux par IP, messages WebSocket par connexion |
 
 ## Déployer (VPS)
 
@@ -99,7 +102,8 @@ src/fix.ts       point : validation, format compact, zones
 src/profile.ts   profil du pilote
 src/store.ts     SQLite : pilotes, points (anneau 72 h / place), sessions LiveTrack24
 src/live.ts      mémoire du direct : traces récentes, journal, curseurs, mises à jour par abonné
-src/service.ts   appareils et secrets, envoi, oubli, blocage, entretien chaque minute
+src/service.ts   appareils et secrets, envoi, oubli, bannissements, entretien chaque minute
+src/apps.ts      logiciels autorisés : clés créées, renouvelées, révoquées au back-office
 src/http.ts      API HTTP, back-office, fichiers
 src/ws.ts        WebSocket
 src/lt24.ts      LiveTrack24

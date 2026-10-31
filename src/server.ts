@@ -1,6 +1,6 @@
 // Démarrage : base, mémoire du direct, HTTP + WebSocket, entretien chaque minute, arrêt propre.
 
-import { mkdirSync } from 'node:fs';
+import { chmodSync, mkdirSync } from 'node:fs';
 import { createServer } from 'node:http';
 import { join } from 'node:path';
 import { loadConfig, type Config } from './config.ts';
@@ -13,6 +13,8 @@ export interface Running { svc: Service; api: Api; socket: LiveSocket; port: num
 
 export async function start(cfg: Config = loadConfig(), file?: string): Promise<Running> {
   mkdirSync(cfg.dataDir, { recursive: true });
+  // positions, noms, journal : à personne d'autre sur la machine (sans effet sous Windows)
+  try { chmodSync(cfg.dataDir, 0o700); } catch { /* dossier monté */ }
   const store = new Store(file ?? join(cfg.dataDir, 'live.db'));
   const svc = new Service(cfg, store);
   svc.maintain();
@@ -43,7 +45,9 @@ if (import.meta.main) {
   const run = await start(cfg);
   const s = run.svc.live.stats();
   console.log(`open-paragliders-network sur http://${cfg.host}:${run.port} — ${s.pilots} pilotes, ${s.points} points en mémoire, historique ${cfg.retentionH} h, base ≤ ${cfg.maxDbMb} Mo`);
-  if (!cfg.appKeys.length) console.warn('APP_KEYS vide : serveur ouvert à tous les logiciels (développement)');
+  if (run.svc.apps.open) console.warn('Aucune clé de logiciel : serveur ouvert à tous (développement). Crée une clé au back-office pour le fermer.');
   if (!cfg.adminToken) console.warn('ADMIN_TOKEN vide : back-office fermé');
+  else if (cfg.adminToken.length < 16) console.warn('ADMIN_TOKEN court : 16 caractères au moins (openssl rand -base64 32)');
+  for (const k of cfg.appKeys) if (k.key.length < 16) console.warn(`clé ${k.name} courte : 16 caractères au moins (openssl rand -hex 24)`);
   for (const sig of ['SIGINT', 'SIGTERM'] as const) process.once(sig, () => { void run.close().then(() => process.exit(0)); });
 }

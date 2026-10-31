@@ -4,14 +4,18 @@
 
 import { createReadStream, existsSync, statSync } from 'node:fs';
 import type { IncomingMessage, ServerResponse } from 'node:http';
-import { extname, join, normalize, resolve } from 'node:path';
+import { extname, join, normalize, resolve, sep } from 'node:path';
 import { gunzipSync, gzipSync } from 'node:zlib';
-import { timingSafeEqual } from 'node:crypto';
+import { createHash, timingSafeEqual } from 'node:crypto';
+import { AppError } from './apps.ts';
 import { parseArea, wire, type BBox } from './fix.ts';
 import { handleLt24 } from './lt24.ts';
 import type { SubState, Update } from './live.ts';
 import { HttpError, profileOf, type Service } from './service.ts';
+import { RateLimiter } from './rate.ts';
 import { thin } from './store.ts';
+
+export { RateLimiter };
 
 export const VERSION = '0.1.0';
 export const PROTOCOL = 1;
@@ -22,30 +26,25 @@ const MIME: Record<string, string> = {
   '.svg': 'image/svg+xml', '.png': 'image/png', '.ico': 'image/x-icon', '.json': 'application/json', '.md': 'text/markdown; charset=utf-8', '.mjs': 'text/plain; charset=utf-8',
 };
 
-/** comptage par IP sur une fenêtre fixe d'une minute */
-export class RateLimiter {
-  private win = 0;
-  private n = new Map<string, number>();
-  readonly perMin: number;
-  constructor(perMin: number) { this.perMin = perMin; }
-  hit(ip: string, cost = 1, nowMs = Date.now()): boolean {
-    const w = Math.floor(nowMs / 60000);
-    if (w !== this.win) { this.win = w; this.n.clear(); }
-    const v = (this.n.get(ip) ?? 0) + cost;
-    this.n.set(ip, v);
-    return v <= this.perMin;
-  }
-}
-
+/** l'adresse du client. Derrière un proxy, la DERNIÈRE de X-Forwarded-For : c'est lui qui l'a écrite ; les premières
+ *  viennent du client, qui les choisit (et contournerait ainsi toutes les limites par adresse) */
 export const clientIp = (req: IncomingMessage, trustProxy: boolean) =>
-  (trustProxy && typeof req.headers['x-forwarded-for'] === 'string' ? req.headers['x-forwarded-for'].split(',')[0].trim() : '') || req.socket.remoteAddress || '?';
+  (trustProxy && typeof req.headers['x-forwarded-for'] === 'string' ? req.headers['x-forwarded-for'].split(',').at(-1)!.trim() : '') || req.socket.remoteAddress || '?';
 
-const eq = (a: string, b: string) => a.length === b.length && timingSafeEqual(Buffer.from(a), Buffer.from(b));
+/** comparé sur les empreintes : ni le contenu ni la longueur ne transparaissent dans le temps de réponse */
+const eq = (a: string, b: string) => timingSafeEqual(createHash('sha256').update(a).digest(), createHash('sha256').update(b).digest());
+
+/** les pages : scripts et feuilles d'ici et du CDN (avec leur empreinte), cartes et relief, rien d'autre */
+const CSP = "default-src 'none'; script-src 'self' https://unpkg.com; style-src 'self' 'unsafe-inline' https://unpkg.com; img-src 'self' data: blob: https:; font-src 'self' data:; "
+  + "connect-src 'self' wss: https://tiles.openfreemap.org https://s3.amazonaws.com; worker-src blob:; child-src blob:; base-uri 'none'; form-action 'self'; frame-ancestors 'none'";
+/** une connexion LiveTrack24 avec mot de passe coûte un scrypt, qui bloque le serveur le temps du calcul */
+const LT24_LOGIN_COST = 20;
 
 export class Api {
   private rate: RateLimiter;
-  /** essais de mot de passe du back-office ratés, par IP */
+  /** essais de mot de passe du back-office ratés, par IP, et tous ensemble (depuis beaucoup d'adresses) */
   private adminFails: RateLimiter = new RateLimiter(10);
+  private adminFailsAll: RateLimiter = new RateLimiter(100);
   /** abonnés WebSocket (pour les statistiques) */
   wsCount: () => number = () => 0;
 
@@ -54,30 +53,31 @@ export class Api {
 
   /** nom du logiciel si la clé est bonne ; '' quand le serveur est ouvert (aucune clé réglée) ; null : refusée */
   appOf(key: unknown): string | null {
-    const keys = this.svc.cfg.appKeys;
-    if (!keys.length) return '';
-    if (typeof key !== 'string' || !key) return null;
-    return keys.find(k => eq(k.key, key))?.name ?? null;
+    return this.svc.apps.open ? '' : this.svc.apps.check(key);
   }
   isAdmin(token: unknown, ip: string): boolean {
     const t = this.svc.cfg.adminToken;
     if (!t || typeof token !== 'string' || !token) return false;
     if (eq(t, token)) return true;
     this.adminFails.hit(ip);
+    this.adminFailsAll.hit('*');
     return false;
   }
-  adminLocked(ip: string) { return !this.adminFails.hit(ip, 0); }
+  adminLocked(ip: string) { return !this.adminFails.hit(ip, 0) || !this.adminFailsAll.hit('*', 0); }
 
   async handle(req: IncomingMessage, res: ServerResponse) {
     const ip = clientIp(req, this.svc.cfg.trustProxy);
     const url = new URL(req.url ?? '/', 'http://x');
     const path = url.pathname.replace(/\/+$/, '') || '/';
     try {
-      if (req.method === 'OPTIONS') return this.send(req, res, 204, '');
+      // le back-office ne sert qu'à ses pages : pas de CORS
+      if (req.method === 'OPTIONS') return this.send(req, res, 204, '', path.startsWith('/api/v1/admin/') ? NO_CORS : {});
       if (path === '/healthz') return this.json(req, res, 200, { ok: true });
+      if (this.svc.ipBanned(ip)) throw new HttpError(403, 'banned');
       if (!this.rate.hit(ip)) throw new HttpError(429, 'rate-limited', 'trop de requêtes, réessayer dans une minute');
       if (path.startsWith('/api/')) return await this.api(req, res, path, url.searchParams, ip);
       if (this.svc.cfg.lt24 && /^(\/lt24)?\/(client|track)\.php$/.test(path)) {
+        if (url.searchParams.has('pass') && !this.rate.hit(ip, LT24_LOGIN_COST)) throw new HttpError(429, 'rate-limited', 'trop de requêtes, réessayer dans une minute');
         return this.send(req, res, 200, handleLt24(this.svc, path, url.searchParams), { 'Content-Type': 'text/plain; charset=utf-8' });
       }
       if (path === '/') return this.send(req, res, 302, '', { Location: '/docs/' });
@@ -89,7 +89,8 @@ export class Api {
       return this.static(req, res, url.pathname);
     } catch (e) {
       if (e instanceof HttpError) return this.json(req, res, e.status, { ok: false, error: e.code, message: e.message });
-      console.error('[http]', req.method, path, e);
+      // jamais un jeton de lien de suivi dans les journaux
+      console.error('[http]', req.method, path.replace(/\/(shared|p)\/[^/]+/, '/$1/…'), e);
       return this.json(req, res, 500, { ok: false, error: 'server-error' });
     }
   }
@@ -102,7 +103,12 @@ export class Api {
       if (this.adminLocked(ip)) throw new HttpError(429, 'too-many-failures', 'trop d’essais, réessayer dans une minute');
       const auth = req.headers.authorization ?? '';
       if (!this.isAdmin(auth.startsWith('Bearer ') ? auth.slice(7) : '', ip)) throw new HttpError(401, 'admin-required');
-      return this.json(req, res, 200, await this.admin(req, m, path.slice('/api/v1/admin/'.length), q));
+      try {
+        return this.send(req, res, 200, JSON.stringify(await this.admin(req, m, path.slice('/api/v1/admin/'.length), q, ip)), { 'Content-Type': 'application/json; charset=utf-8', ...NO_CORS });
+      } catch (e) {
+        if (e instanceof AppError) throw new HttpError(400, e.code, e.message);
+        throw e;
+      }
     }
     if (path === '/api/v1' && m === 'GET') return this.json(req, res, 200, this.info());
     // un lien de suivi : le jeton suffit, ses lecteurs (les proches du pilote) n'ont pas de clé de logiciel
@@ -113,21 +119,23 @@ export class Api {
     // X-WSNav-Key : l'en-tête des autres serveurs WeSoar (src/core/services.ts de WS Nav, keyedRequest)
     const app = this.appOf(req.headers['x-app-key'] ?? req.headers['x-wsnav-key'] ?? q.get('key'));
     if (app === null) throw new HttpError(401, 'app-key-required', 'clé de logiciel absente ou inconnue (en-tête X-App-Key)');
+    svc.apps.count(app, Math.floor(svc.now()));
 
     if (m === 'POST' && path === '/api/v1/points') {
-      const body = await readJson(req);
-      return this.json(req, res, 200, svc.ingest(body));
+      const body = await readJson(req), r = svc.ingest(body, ip);
+      svc.apps.count(app, Math.floor(svc.now()), r.stored);
+      return this.json(req, res, 200, r);
     }
     if (m === 'POST' && path === '/api/v1/pilot') {
       const body = await readJson(req);
-      const p = svc.authDevice(body, { create: true });
+      const p = svc.authDevice(body, { create: true, ip });
       return this.json(req, res, 200, { ok: true, pilot: String(p.pid), p: svc.updateProfile(p, body.pilot, body.app) });
     }
     if (m === 'POST' && path === '/api/v1/status') {
-      return this.json(req, res, 200, svc.setStatus(await readJson(req)));
+      return this.json(req, res, 200, svc.setStatus(await readJson(req), ip));
     }
     if (m === 'POST' && path === '/api/v1/share') {
-      return this.json(req, res, 200, svc.share(await readJson(req)));
+      return this.json(req, res, 200, svc.share(await readJson(req), ip));
     }
     if (m === 'POST' && path === '/api/v1/forget') {
       svc.forget(await readJson(req));
@@ -174,8 +182,30 @@ export class Api {
     return since !== null && since !== '' ? { ...u, reset: true } : u;
   }
 
-  private async admin(req: IncomingMessage, m: string, path: string, q: URLSearchParams) {
-    const svc = this.svc;
+  private async admin(req: IncomingMessage, m: string, path: string, q: URLSearchParams, ip: string) {
+    const svc = this.svc, nowS = Math.floor(svc.now());
+    const note = (action: string, detail = '') => svc.store.log(nowS, ip, action, detail);
+    if (path === 'apps' && m === 'GET') return svc.apps.list();
+    if (path === 'apps' && m === 'POST') { const r = svc.apps.add(await readJson(req), nowS); note('logiciel ajouté', r.name); return r; }
+    const am = /^apps\/(\d+)\/(rotate|revoke|restore|update|delete)$/.exec(path);
+    if (am && m === 'POST') {
+      const id = Number(am[1]), body = await readJson(req);
+      switch (am[2]) {
+        case 'rotate': { const r = svc.apps.rotate(id, nowS); svc.onDropApp?.(r.name); note('clé renouvelée', r.name); return r; }
+        case 'revoke': { const name = svc.apps.setRevoked(id, true); svc.onDropApp?.(name); note('logiciel révoqué', name); return { ok: true }; }
+        case 'restore': note('logiciel rétabli', svc.apps.setRevoked(id, false)); return { ok: true };
+        case 'update': svc.apps.update(id, body); return { ok: true };
+        default: { const name = svc.apps.remove(id); svc.onDropApp?.(name); note('logiciel supprimé', name); return { ok: true }; }
+      }
+    }
+    if (path === 'bans' && m === 'GET') return { bans: svc.bans() };
+    if (path === 'bans/lift' && m === 'POST') {
+      const body = await readJson(req), value = String(body.value ?? '');
+      if (body.kind === 'ip') svc.unbanIp(value); else svc.unbanDevice(value);
+      note('bannissement levé', String(body.kind));
+      return { ok: true };
+    }
+    if (path === 'audit' && m === 'GET') return { audit: svc.store.journal() };
     if (m === 'GET' && path === 'stats') {
       const c = svc.store.count();
       return {
@@ -213,12 +243,13 @@ export class Api {
       if (!p) throw new HttpError(404, 'unknown-pilot');
       return { id: tm[1], p: p.profile, pts: thin(svc.store.track(p.pid, from, to, 500000), step).map(wire) };
     }
-    const pm = /^pilots\/(\d+)\/(block|delete|profile|clear)$/.exec(path);
+    const pm = /^pilots\/(\d+)\/(block|delete|profile|clear|ban-ip)$/.exec(path);
     if (m === 'POST' && pm) {
       const pid = Number(pm[1]), body = await readJson(req);
-      if (pm[2] === 'block') svc.block(pid, body.blocked !== false);
-      else if (pm[2] === 'delete') svc.remove(pid);
-      else if (pm[2] === 'clear') svc.clearStatus(pid);
+      if (pm[2] === 'block') { svc.block(pid, body.blocked !== false, typeof body.reason === 'string' ? body.reason : ''); note(body.blocked !== false ? 'pilote banni' : 'pilote rétabli', pm[1]); }
+      else if (pm[2] === 'delete') { svc.remove(pid); note('pilote effacé', pm[1]); }
+      else if (pm[2] === 'clear') { svc.clearStatus(pid); note('état retiré', pm[1]); }
+      else if (pm[2] === 'ban-ip') { svc.banIp(pid, typeof body.reason === 'string' ? body.reason : ''); note('adresse bannie 24 h', pm[1]); }
       else {
         const p = svc.store.pilotById(pid);
         if (!p) throw new HttpError(404, 'unknown-pilot');
@@ -233,12 +264,13 @@ export class Api {
     let rel: string;
     try { rel = normalize(decodeURIComponent(pathname)).replace(/^(\.\.[/\\])+/, ''); } catch { throw new HttpError(400, 'bad-path'); }
     let file = join(PUBLIC, rel);
-    if (!file.startsWith(PUBLIC)) throw new HttpError(404, 'not-found');
+    if (file !== PUBLIC && !file.startsWith(PUBLIC + sep)) throw new HttpError(404, 'not-found');
     if (existsSync(file) && statSync(file).isDirectory()) file = join(file, 'index.html');
     if (!existsSync(file) || !statSync(file).isFile()) throw new HttpError(404, 'not-found');
     res.writeHead(200, {
       'Content-Type': MIME[extname(file)] ?? 'application/octet-stream', 'Cache-Control': 'no-cache',
       'X-Content-Type-Options': 'nosniff', 'Referrer-Policy': 'no-referrer', 'X-Frame-Options': 'DENY', 'X-Robots-Tag': 'noindex, nofollow',
+      ...(extname(file) === '.html' ? { 'Content-Security-Policy': CSP } : {}),
     });
     createReadStream(file).pipe(res);
   }
@@ -254,6 +286,7 @@ export class Api {
       'Access-Control-Allow-Headers': 'Content-Type, Content-Encoding, X-App-Key, X-WSNav-Key, Authorization', 'Access-Control-Max-Age': '86400',
       ...headers,
     };
+    for (const k of Object.keys(h)) if (!h[k] && k.startsWith('Access-Control')) delete h[k];
     let data: Buffer = Buffer.from(body);
     if (data.length > 1024 && /\bgzip\b/.test(String(req.headers['accept-encoding'] ?? ''))) {
       data = gzipSync(data, { level: 5 });
@@ -265,6 +298,8 @@ export class Api {
     res.end(data);
   }
 }
+
+const NO_CORS = { 'Access-Control-Allow-Origin': '', 'Access-Control-Allow-Methods': '', 'Access-Control-Allow-Headers': '', 'Access-Control-Max-Age': '' };
 
 /** un abonnement sans état (requête HTTP) */
 export function newSub(svc: Service, bbox: BBox | null, trail: unknown, maxAge: unknown, admin: boolean): SubState {

@@ -63,12 +63,43 @@ CREATE TABLE IF NOT EXISTS alerts (
   lon REAL,
   alt REAL
 );
+CREATE TABLE IF NOT EXISTS apps (
+  id INTEGER PRIMARY KEY,
+  name TEXT NOT NULL UNIQUE,
+  contact TEXT NOT NULL DEFAULT '',
+  note TEXT NOT NULL DEFAULT '',
+  hash TEXT NOT NULL UNIQUE,
+  revoked INTEGER NOT NULL DEFAULT 0,
+  created INTEGER NOT NULL,
+  rotated INTEGER NOT NULL DEFAULT 0,
+  seen INTEGER NOT NULL DEFAULT 0,
+  requests INTEGER NOT NULL DEFAULT 0,
+  points INTEGER NOT NULL DEFAULT 0
+);
+CREATE TABLE IF NOT EXISTS bans (
+  device TEXT PRIMARY KEY,
+  label TEXT NOT NULL DEFAULT '',
+  reason TEXT NOT NULL DEFAULT '',
+  at INTEGER NOT NULL
+);
+CREATE TABLE IF NOT EXISTS audit (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  t INTEGER NOT NULL,
+  ip TEXT NOT NULL,
+  action TEXT NOT NULL,
+  detail TEXT NOT NULL DEFAULT ''
+);
 CREATE TABLE IF NOT EXISTS shares (
   pid INTEGER PRIMARY KEY,
   hash TEXT NOT NULL UNIQUE,
   at INTEGER NOT NULL
 );
 `;
+
+/** un logiciel géré au back-office */
+export interface AppRow { id: number; name: string; contact: string; note: string; hash: string; revoked: boolean; created: number; rotated: number; seen: number; requests: number; points: number }
+export interface BanRow { device: string; label: string; reason: string; at: number }
+export interface AuditRow { t: number; ip: string; action: string; detail: string }
 
 type Row = Record<string, unknown>;
 const toPilot = (r: Row): PilotRow => ({
@@ -136,6 +167,9 @@ export class Store {
     p('sharePid', 'SELECT pid FROM shares WHERE hash = ?');
     p('sharePut', 'INSERT INTO shares (pid, hash, at) VALUES (?, ?, ?) ON CONFLICT (pid) DO UPDATE SET hash = excluded.hash, at = excluded.at');
     p('delShare', 'DELETE FROM shares WHERE pid = ?');
+    p('banned', 'SELECT 1 FROM bans WHERE device = ?');
+    p('audit', 'INSERT INTO audit (t, ip, action, detail) VALUES (?, ?, ?, ?)');
+    p('appCount', 'UPDATE apps SET requests = requests + ?, points = points + ?, seen = max(seen, ?) WHERE name = ?');
     p('bump', 'UPDATE pilots SET pv = pv + 1 WHERE pid = ? RETURNING pv');
     p('alertPut', `INSERT INTO alerts (pid, state, t, lat, lon, alt) VALUES (?, ?, ?, ?, ?, ?)
                     ON CONFLICT (pid) DO UPDATE SET state = excluded.state, t = excluded.t, lat = excluded.lat, lon = excluded.lon, alt = excluded.alt`);
@@ -164,6 +198,31 @@ export class Store {
   deletePilot(pid: number) {
     this.tx(() => { this.st.delPoints.run(pid); this.st.delLt24.run(pid); this.st.delShare.run(pid); this.st.alertDel.run(pid); this.st.delPilot.run(pid); });
   }
+  // ── logiciels ──────────────────────────────────────────────────────────────────────────────────────────────────
+
+  allApps(): AppRow[] { return (this.db.prepare('SELECT * FROM apps ORDER BY name').all() as Row[]).map(r => ({ ...r, revoked: !!r.revoked }) as unknown as AppRow); }
+  addApp(name: string, contact: string, note: string, hash: string, now: number): number {
+    return Number(this.db.prepare('INSERT INTO apps (name, contact, note, hash, created) VALUES (?, ?, ?, ?, ?)').run(name, contact, note, hash, now).lastInsertRowid);
+  }
+  setAppKey(id: number, hash: string, now: number) { this.db.prepare('UPDATE apps SET hash = ?, rotated = ?, revoked = 0 WHERE id = ?').run(hash, now, id); }
+  setAppRevoked(id: number, revoked: boolean) { this.db.prepare('UPDATE apps SET revoked = ? WHERE id = ?').run(revoked ? 1 : 0, id); }
+  setAppInfo(id: number, contact: string, note: string) { this.db.prepare('UPDATE apps SET contact = ?, note = ? WHERE id = ?').run(contact, note, id); }
+  deleteApp(id: number) { this.db.prepare('DELETE FROM apps WHERE id = ?').run(id); }
+  appCount(name: string, requests: number, points: number, seen: number) { this.st.appCount.run(requests, points, seen, name); }
+
+  // ── bannissements, journal ─────────────────────────────────────────────────────────────────────────────────────
+
+  /** un appareil banni le reste même si son pilote est effacé : il ne pourra pas se réinscrire sous le même nom */
+  banned(device: string) { return !!this.st.banned.get(device); }
+  ban(device: string, label: string, reason: string, now: number) {
+    this.db.prepare('INSERT INTO bans (device, label, reason, at) VALUES (?, ?, ?, ?) ON CONFLICT (device) DO UPDATE SET label = excluded.label, reason = excluded.reason').run(device, label, reason, now);
+  }
+  unban(device: string) { this.db.prepare('DELETE FROM bans WHERE device = ?').run(device); }
+  allBans(): BanRow[] { return this.db.prepare('SELECT * FROM bans ORDER BY at DESC').all() as unknown as BanRow[]; }
+  log(t: number, ip: string, action: string, detail = '') { this.st.audit.run(t, ip, action, detail); }
+  journal(limit = 200): AuditRow[] { return this.db.prepare('SELECT t, ip, action, detail FROM audit ORDER BY id DESC LIMIT ?').all(limit) as unknown as AuditRow[]; }
+  purgeJournal(cutoff: number) { this.db.prepare('DELETE FROM audit WHERE t < ?').run(cutoff); }
+
   /** état déclaré du pilote ; null : retiré. Nouvelle version du profil : les abonnés le reçoivent */
   setAlert(pid: number, a: PilotStatus | null): number {
     if (a) this.st.alertPut.run(pid, a.state, a.t, a.lat, a.lon, a.alt); else this.st.alertDel.run(pid);

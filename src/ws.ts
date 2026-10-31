@@ -32,6 +32,9 @@ interface Conn {
   pilot: PilotRow | null;
   sub: (SubState & { every: number; nextAt: number }) | null;
   alive: boolean;
+  /** messages reçus dans la minute `win` */
+  win: number;
+  n: number;
 }
 
 export class LiveSocket {
@@ -55,12 +58,16 @@ export class LiveSocket {
     this.timers.push(setInterval(() => this.tick(), TICK_MS));
     this.timers.push(setInterval(() => this.heartbeat(), PING_MS));
     api.wsCount = () => this.conns.size;
+    // une clé révoquée ou une adresse bannie ne garde pas ses connexions ouvertes
+    svc.onDropApp = name => { for (const c of this.conns) if (c.app === name) c.ws.close(4001, 'app-key-required'); };
+    svc.onDropIp = ip => { for (const c of this.conns) if (c.ip === ip) c.ws.close(4003, 'banned'); };
   }
 
   private upgrade(req: IncomingMessage, socket: Duplex, head: Buffer) {
     const url = new URL(req.url ?? '/', 'http://x');
     const ip = clientIp(req, this.svc.cfg.trustProxy);
     if (url.pathname !== '/api/v1/ws') { socket.end('HTTP/1.1 404 Not Found\r\n\r\n'); return; }
+    if (this.svc.ipBanned(ip)) { socket.end('HTTP/1.1 403 Forbidden\r\n\r\n'); return; }
     if ((this.perIp.get(ip) ?? 0) >= this.svc.cfg.maxWsPerIp) { socket.end('HTTP/1.1 429 Too Many Requests\r\n\r\n'); return; }
     this.wss.handleUpgrade(req, socket, head, ws => this.open(ws, ip, url.searchParams));
   }
@@ -68,12 +75,15 @@ export class LiveSocket {
   private open(ws: WebSocket, ip: string, q: URLSearchParams) {
     this.perIp.set(ip, (this.perIp.get(ip) ?? 0) + 1);
     const app = this.api.appOf(q.get('key'));
-    const c: Conn = { ws, ip, ok: app !== null, admin: false, app: app ?? '', pilot: null, sub: null, alive: true };
+    const c: Conn = { ws, ip, ok: app !== null, admin: false, app: app ?? '', pilot: null, sub: null, alive: true, win: 0, n: 0 };
     this.conns.add(c);
     const helloTimer = setTimeout(() => { if (!c.ok) ws.close(4001, 'app-key-required'); }, HELLO_MS);
     ws.on('pong', () => { c.alive = true; });
     ws.on('message', (data, binary) => {
       c.alive = true;
+      const win = Math.floor(Date.now() / 60000);
+      if (win !== c.win) { c.win = win; c.n = 0; }
+      if (++c.n > this.svc.cfg.maxWsPerMin) { ws.close(4008, 'rate-limited'); return; }
       if (binary) return this.err(c, 'bad-message', 'texte JSON attendu');
       let m: Record<string, unknown>;
       try { m = JSON.parse(data.toString()); } catch { return this.err(c, 'bad-json'); }
@@ -108,7 +118,7 @@ export class LiveSocket {
         c.ok = true; c.app = app;
       }
       if (m.device !== undefined) {
-        c.pilot = svc.authDevice(m);
+        c.pilot = svc.authDevice(m, { ip: c.ip });
         if (m.pilot !== undefined || m.app !== undefined) svc.updateProfile(c.pilot, m.pilot, m.app);
       }
       return this.send(c, {

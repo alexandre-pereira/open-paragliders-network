@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="robots" content="noindex, nofollow">
   <title>Open Paragliders Network – back-office</title>
-  <link rel="stylesheet" href="https://unpkg.com/maplibre-gl@5.24.0/dist/maplibre-gl.css">
+  <link rel="stylesheet" href="https://unpkg.com/maplibre-gl@5.24.0/dist/maplibre-gl.css" integrity="sha384-uTttxo/aOKbdE5RlD/SPzSDoDmNvGlUYPjONi2MN/b7c9HPSvW07OIuyP7uL6jxK" crossorigin="anonymous">
   <link rel="stylesheet" href="admin.css">
 </head>
 <body>
@@ -23,6 +23,7 @@
     <header>
       <h1>Open Paragliders Network</h1>
       <span id="conn" class="dot" title="Liaison en direct"></span>
+      <button id="openAdmin" class="icon" title="Logiciels, bannissements, journal">⚙</button>
       <button id="toggleSide" class="icon" title="Masquer le panneau">‹</button>
     </header>
     <section id="stats" class="stats"></section>
@@ -85,12 +86,33 @@
 
   <main id="map"></main>
 
+  <div id="adminPanel" class="overlay" hidden>
+    <div class="card admin-card">
+      <header><h1>Administration</h1><button id="closeAdmin" type="button" class="icon" title="Fermer">✕</button></header>
+      <p id="openWarn" class="err" hidden>Aucune clé : le serveur est ouvert à tous. Il se ferme dès la première clé créée.</p>
+      <p id="adminErr" class="err"></p>
+      <div id="newKey" class="new-key" hidden></div>
+      <h2>Logiciels connectés</h2>
+      <ul id="appList" class="admin-list"></ul>
+      <form id="appForm" class="row">
+        <label>Nom du logiciel<input id="appName" required maxlength="40" placeholder="XCTrack"></label>
+        <label>Contact<input id="appContact" maxlength="120" placeholder="dev@exemple.org"></label>
+        <button type="submit">Créer une clé</button>
+      </form>
+      <h2>Bannissements</h2>
+      <ul id="banList" class="admin-list"></ul>
+      <h2>Journal (30 jours)</h2>
+      <ul id="auditList" class="admin-list"></ul>
+    </div>
+  </div>
+
   <div id="detail" class="card detail" hidden></div>
 
-  <script src="https://unpkg.com/maplibre-gl@5.24.0/dist/maplibre-gl.js"></script>
-  <script src="https://unpkg.com/maplibre-contour@0.1.1/dist/index.min.js"></script>
+  <script src="https://unpkg.com/maplibre-gl@5.24.0/dist/maplibre-gl.js" integrity="sha384-5+cfbwT0iiub6VsQAdn6yz16nr6sDiQoHx6tm4O8OVYXHYOxcffFmCJBL0dgdvGp" crossorigin="anonymous"></script>
+  <script src="https://unpkg.com/maplibre-contour@0.1.1/dist/index.min.js" integrity="sha384-f2gK0HoDkM64k6ZBnbv6ZuvMzDqPOwrfTaIU9iv2BN7CWHyyTQJkPC9AoRNuuV39" crossorigin="anonymous"></script>
   <script src="basemap.js"></script>
   <script src="air3d.js"></script>
   <script src="admin.js"></script>
+  <script src="apps.js"></script>
 </body>
 </html>

@@ -21,7 +21,7 @@ export interface Config {
   defaultEvery: number;
   /** trace envoyée par défaut avec un pilote vu pour la première fois (s) */
   defaultTrailS: number;
-  /** clés des logiciels autorisés ; vide = serveur ouvert (développement) */
+  /** clés des logiciels fixées par l'environnement ; les autres se gèrent au back-office (apps.ts). Aucune = serveur ouvert (développement) */
   appKeys: AppKey[];
   /** mot de passe du back-office ; vide = back-office fermé */
   adminToken: string;
@@ -39,6 +39,10 @@ export interface Config {
   maxWsPerIp: number;
   /** points par envoi */
   maxBatch: number;
+  /** appareils nouveaux par IP et par minute */
+  rateNewDevice: number;
+  /** messages WebSocket par connexion et par minute */
+  maxWsPerMin: number;
 }
 
 const num = (env: NodeJS.ProcessEnv, k: string, d: number, min = -Infinity, max = Infinity) => {
@@ -83,5 +87,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     rateHttp: num(env, 'RATE_HTTP_PER_MIN', 600, 10),
     maxWsPerIp: num(env, 'MAX_WS_PER_IP', 20, 1),
     maxBatch: num(env, 'MAX_BATCH', 5000, 10, 50000),
+    rateNewDevice: num(env, 'RATE_NEW_DEVICE_PER_MIN', 20, 1),
+    maxWsPerMin: num(env, 'MAX_WS_PER_MIN', 600, 10),
   };
 }

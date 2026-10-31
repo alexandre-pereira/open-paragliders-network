@@ -231,7 +231,8 @@ function renderDetail() {
     btn('Trace complète', () => loadFull(p.id)),
     btn('GPX', () => gpx(p)),
     p.p?.status ? btn('Retirer l’état', () => clearFlag(p.id)) : null,
-    btn(p.blocked ? 'Débloquer' : 'Bloquer', () => block(p.id, !p.blocked), 'danger'),
+    btn(p.blocked ? 'Rétablir' : 'Bannir l’appareil', () => block(p.id, !p.blocked), 'danger'),
+    btn('Bannir l’adresse 24 h', () => banIp(p.id), 'danger'),
     btn('Effacer', () => removePilot(p.id), 'danger'));
   const close = btn('✕', () => { state.sel = null; state.follow = false; box.hidden = true; state.dirty = true; }, 'icon close');
   box.replaceChildren(close, el('h3', { textContent: nameOf(p) }), el('div', { className: 'muted', textContent: p.blocked ? 'Bloqué : invisible pour les autres, ses envois sont refusés' : '' }), dl, actions);
@@ -290,10 +291,16 @@ async function loadFull(id) {
 }
 
 async function block(id, blocked) {
+  if (blocked && !confirm('Bannir cet appareil ? Il ne pourra plus envoyer ni se réinscrire, même une fois effacé. Il peut revenir sur un autre appareil.')) return;
   await api(`/admin/pilots/${id}/block`, { method: 'POST', body: JSON.stringify({ blocked }) });
   const p = state.pilots.get(id);
   if (p) p.blocked = blocked;
   state.dirty = true;
+}
+
+async function banIp(id) {
+  if (!confirm('Bannir son adresse pendant 24 h ? Sur un réseau mobile, elle peut être partagée avec d’autres personnes.')) return;
+  try { await api(`/admin/pilots/${id}/ban-ip`, { method: 'POST', body: '{}' }); } catch (e) { alert(e.message.replace(/^\d+ /, '')); }
 }
 
 async function clearFlag(id) {

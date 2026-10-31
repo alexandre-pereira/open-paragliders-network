@@ -6,10 +6,12 @@
 
 import { createHash, randomBytes, scryptSync, timingSafeEqual } from 'node:crypto';
 import { statfsSync } from 'node:fs';
+import { Apps } from './apps.ts';
 import type { Config } from './config.ts';
 import { parseFix, wire, type NewFix } from './fix.ts';
 import { Live } from './live.ts';
 import { EMPTY_PROFILE, mergeProfile, sameProfile, type PilotStatus, type Profile } from './profile.ts';
+import { RateLimiter } from './rate.ts';
 import type { PilotRow, Store } from './store.ts';
 
 export const DEVICE_RE = /^[A-Za-z0-9_.:@-]{6,80}$/;
@@ -20,6 +22,12 @@ export const SHARE_RE = /^[A-Za-z0-9_-]{22,64}$/;
 const SHARED_H = 24, SHARED_STEP = 5;
 /** la trace montrée avant une alerte (s) */
 const SOS_TRAIL_S = 1800;
+/** bannissement d'une adresse IP (s) : elle change, et un opérateur mobile la partage entre beaucoup de monde */
+const IP_BAN_S = 86400;
+/** le journal des actions du back-office (s) */
+const JOURNAL_S = 30 * 86400;
+/** alertes montrées au plus sur la page publique */
+const MAX_SOS = 200;
 
 export class HttpError extends Error {
   readonly status: number;
@@ -67,10 +75,21 @@ export class Service {
 
   readonly cfg: Config;
   readonly store: Store;
+  readonly apps: Apps;
+  private newDevices: RateLimiter;
+  /** adresses bannies → fin ; en mémoire seulement : aucune adresse sur le disque */
+  private ipBans = new Map<string, { until: number; label: string; reason: string; at: number }>();
+  /** dernière adresse de chaque pilote, pour pouvoir la bannir ; en mémoire seulement */
+  private lastIp = new Map<number, string>();
+  /** le pilote et son logiciel doivent être déconnectés (ws.ts) */
+  onDropApp: ((name: string) => void) | null = null;
+  onDropIp: ((ip: string) => void) | null = null;
 
   constructor(cfg: Config, store: Store) {
     this.cfg = cfg;
     this.store = store;
+    this.apps = new Apps(cfg.appKeys, store);
+    this.newDevices = new RateLimiter(cfg.rateNewDevice);
     this.live = new Live(cfg.liveWindowMin * 60, store.maxSeq());
     for (const p of store.allPilots()) this.live.setPilot(p.pid, profileOf(p), p.pv, p.blocked);
     this.live.load(store.recent(Math.floor(this.now()) - cfg.liveWindowMin * 60));
@@ -82,19 +101,22 @@ export class Service {
   oldest() { return Math.floor(this.now()) - this.cfg.retentionH * 3600; }
 
   /** l'appareil, réservé à son premier envoi ; refus si le secret ne va pas ou si le pilote est bloqué */
-  authDevice(c: Credentials, opts: { create?: boolean; slow?: boolean; profile?: Profile } = {}): PilotRow {
+  authDevice(c: Credentials, opts: { create?: boolean; slow?: boolean; profile?: Profile; ip?: string; blockedToo?: boolean } = {}): PilotRow {
     const device = typeof c.device === 'string' ? c.device.trim() : '', secret = typeof c.secret === 'string' ? c.secret : '';
     if (!DEVICE_RE.test(device)) throw new HttpError(400, 'bad-device', 'device : 6 à 80 caractères parmi A-Z a-z 0-9 _ . : @ -');
     if (secret.length < (opts.slow ? 1 : SECRET_MIN) || secret.length > 200) throw new HttpError(400, 'bad-secret', `secret : ${SECRET_MIN} à 200 caractères`);
     let p = this.store.pilotByDevice(device);
     if (!p) {
       if (opts.create === false) throw new HttpError(404, 'unknown-device');
+      if (this.store.banned(device)) throw new HttpError(403, 'blocked');
+      if (opts.ip && !this.newDevices.hit(opts.ip)) throw new HttpError(429, 'rate-limited', 'trop d’appareils nouveaux, réessayer dans une minute');
       p = this.store.createPilot(device, hashSecret(secret, opts.slow), opts.profile ?? EMPTY_PROFILE, Math.floor(this.now()));
       this.live.setPilot(p.pid, profileOf(p), p.pv, p.blocked);
       return p;
     }
     if (!checkSecret(secret, p.secret)) throw new HttpError(403, 'device-taken', 'cet identifiant d’appareil appartient à un autre secret');
-    if (p.blocked) throw new HttpError(403, 'blocked');
+    if (p.blocked && !opts.blockedToo) throw new HttpError(403, 'blocked');
+    if (opts.ip) this.lastIp.set(p.pid, opts.ip);
     return p;
   }
 
@@ -133,8 +155,8 @@ export class Service {
   }
 
   /** envoi complet : identifiants, profil facultatif, points */
-  ingest(body: Record<string, unknown>): IngestResult {
-    const p = this.authDevice(body, { profile: mergeProfile(EMPTY_PROFILE, body.pilot, body.app) });
+  ingest(body: Record<string, unknown>, ip?: string): IngestResult {
+    const p = this.authDevice(body, { profile: mergeProfile(EMPTY_PROFILE, body.pilot, body.app), ip });
     if (body.pilot !== undefined || body.app !== undefined) this.updateProfile(p, body.pilot, body.app);
     return this.ingestFor(p, body.points ?? []);
   }
@@ -144,10 +166,10 @@ export class Service {
    * n'en a que l'empreinte (une base volée ne donne aucun lien). Un nouveau jeton remplace l'ancien, qui cesse de
    * marcher tout de suite ; redonner le même ne change rien, et rétablit le lien d'un pilote oublié entre-temps.
    */
-  share(body: Record<string, unknown>) {
+  share(body: Record<string, unknown>, ip?: string) {
     const token = typeof body.token === 'string' ? body.token : '';
     if (!SHARE_RE.test(token)) throw new HttpError(400, 'bad-token', 'token : 22 à 64 caractères parmi A-Z a-z 0-9 _ -');
-    const p = this.authDevice(body, { profile: mergeProfile(EMPTY_PROFILE, body.pilot, body.app) });
+    const p = this.authDevice(body, { profile: mergeProfile(EMPTY_PROFILE, body.pilot, body.app), ip });
     if (body.pilot !== undefined || body.app !== undefined) this.updateProfile(p, body.pilot, body.app);
     const hash = sha256(token), owner = this.store.sharePid(hash);
     if (owner !== undefined && owner !== p.pid) throw new HttpError(409, 'token-taken');
@@ -159,10 +181,10 @@ export class Service {
    * l'état du pilote, qu'il déclare : posé OK, posé pas OK (sos), ou plus rien (none : il a redécollé, ou il annule).
    * Marqué sur sa trace à l'endroit donné, sinon à son dernier point. Renvoyer le même état est sans risque.
    */
-  setStatus(body: Record<string, unknown>) {
+  setStatus(body: Record<string, unknown>, ip?: string) {
     const state = body.state;
     if (state !== 'ok' && state !== 'sos' && state !== 'none') throw new HttpError(400, 'bad-state', 'state : ok, sos ou none');
-    const p = this.authDevice(body, { profile: mergeProfile(EMPTY_PROFILE, body.pilot, body.app) });
+    const p = this.authDevice(body, { profile: mergeProfile(EMPTY_PROFILE, body.pilot, body.app), ip });
     if (body.pilot !== undefined || body.app !== undefined) this.updateProfile(p, body.pilot, body.app);
     const cur = this.live.pilots.get(p.pid)?.profile.status ?? null;
     if (state === 'none') {
@@ -198,7 +220,7 @@ export class Service {
       const { first, last, wing, type } = p.profile;
       pilots.push({ p: { first, last, wing, type }, t: s.t, lat: s.lat, lon: s.lon, alt: s.alt, pts: this.store.track(p.pid, s.t - SOS_TRAIL_S, nowS + 120, 5000, SHARED_STEP).map(wire) });
     }
-    return { now: nowS, pilots: pilots.sort((a, b) => b.t - a.t) };
+    return { now: nowS, pilots: pilots.sort((a, b) => b.t - a.t).slice(0, MAX_SOS) };
   }
 
   /**
@@ -217,17 +239,48 @@ export class Service {
 
   /** le pilote efface tout ce que le serveur a de lui */
   forget(c: Credentials) {
-    const p = this.authDevice(c, { create: false });
+    // un pilote bloqué garde le droit d'effacer ce qu'on a de lui ; son appareil reste banni
+    const p = this.authDevice(c, { create: false, blockedToo: true });
     this.remove(p.pid);
   }
 
-  remove(pid: number) { this.store.deletePilot(pid); this.live.removePilot(pid); }
+  remove(pid: number) { this.store.deletePilot(pid); this.live.removePilot(pid); this.lastIp.delete(pid); }
 
-  block(pid: number, blocked: boolean) {
+  block(pid: number, blocked: boolean, reason = '') {
     const p = this.store.pilotById(pid);
     if (!p) throw new HttpError(404, 'unknown-pilot');
     this.store.setBlocked(pid, blocked);
+    if (blocked) this.store.ban(p.device, [p.first, p.last].filter(Boolean).join(' ') || p.device, reason.slice(0, 200), Math.floor(this.now()));
+    else this.store.unban(p.device);
     this.live.setPilot(pid, profileOf(p), p.pv, blocked);
+  }
+
+  /** lève le bannissement d'un appareil, même si son pilote a été effacé */
+  unbanDevice(device: string) {
+    const p = this.store.pilotByDevice(device);
+    if (p) this.block(p.pid, false); else this.store.unban(device);
+  }
+
+  /** bannit pour 24 h l'adresse d'où un pilote s'est connecté en dernier */
+  banIp(pid: number, reason = '') {
+    const ip = this.lastIp.get(pid), p = this.store.pilotById(pid);
+    if (!ip || !p) throw new HttpError(404, 'no-address', 'pas d’adresse connue pour ce pilote depuis le dernier démarrage');
+    const nowS = Math.floor(this.now());
+    this.ipBans.set(ip, { until: nowS + IP_BAN_S, label: [p.first, p.last].filter(Boolean).join(' ') || p.device, reason: reason.slice(0, 200), at: nowS });
+    this.onDropIp?.(ip);
+    return ip;
+  }
+  ipBanned(ip: string) {
+    const b = this.ipBans.get(ip);
+    if (!b) return false;
+    if (b.until > this.now()) return true;
+    this.ipBans.delete(ip);
+    return false;
+  }
+  unbanIp(ip: string) { this.ipBans.delete(ip); }
+  bans() {
+    const ips = [...this.ipBans].filter(([, b]) => b.until > this.now()).map(([value, b]) => ({ kind: 'ip', value, ...b }));
+    return [...ips, ...this.store.allBans().map(b => ({ kind: 'device', value: b.device, label: b.label, reason: b.reason, at: b.at }))];
   }
 
   /** place libre sur le disque de la base (octets), Infinity si inconnue */
@@ -259,6 +312,8 @@ export class Service {
     const forgotten = this.store.forgetIdle(nowS - this.cfg.pilotTtlDays * 86400);
     for (const pid of forgotten) this.live.removePilot(pid);
     this.store.lt24Purge(nowS - 2 * 86400);
+    this.store.purgeJournal(nowS - JOURNAL_S);
+    this.apps.flush();
     // un état dure autant que l'historique : une alerte n'est jamais retirée plus tôt sans que quelqu'un le décide
     for (const pid of this.store.oldAlerts(this.oldest())) this.apply(pid, null);
     this.lastMaintenance = { at: nowS, purged, evicted, forgotten: forgotten.length, ms: Math.round(performance.now() - t0) };

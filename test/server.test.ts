@@ -144,6 +144,67 @@ test('identifiants sur les autres réseaux : visibles des logiciels, pas du lien
   assert.equal((await (await get(`/api/v1/pilots/${id}`)).json()).p.ids, undefined);
 });
 
+test('logiciels au back-office : clé montrée une fois, renouvelée, révoquée, connexions coupées', async () => {
+  const h = { Authorization: `Bearer ${ADMIN}` };
+  assert.equal((await get('/api/v1/admin/apps', {})).status, 401);
+  const made = await (await post('/api/v1/admin/apps', { name: 'XCTrack', contact: 'dev@xc.test' }, h)).json();
+  assert.match(made.key, /^opn_/);
+  assert.equal((await post('/api/v1/admin/apps', { name: 'XCTrack' }, h)).status, 400, 'nom déjà pris');
+  assert.equal((await get('/api/v1/live', { 'X-App-Key': made.key })).status, 200);
+
+  // jamais la clé ni son empreinte dans la liste ; les requêtes comptées
+  const list = await (await get('/api/v1/admin/apps', h)).json();
+  const row = list.apps.find((a: any) => a.name === 'XCTrack');
+  assert.ok(row.requests >= 1 && row.seen > 0);
+  assert.ok(!JSON.stringify(list).includes(made.key) && !('hash' in row));
+  assert.ok(list.apps.some((a: any) => a.name === 'wsnav' && a.source === 'env'));
+
+  // une connexion ouverte tombe à la révocation
+  const c = await client({ key: made.key });
+  assert.equal(c.welcome.op, 'welcome');
+  const closed = new Promise<number>(ok => c.ws.once('close', code => ok(code)));
+  assert.equal((await post(`/api/v1/admin/apps/${made.id}/revoke`, {}, h)).status, 200);
+  assert.equal(await closed, 4001);
+  assert.equal((await get('/api/v1/live', { 'X-App-Key': made.key })).status, 401);
+  await post(`/api/v1/admin/apps/${made.id}/restore`, {}, h);
+  assert.equal((await get('/api/v1/live', { 'X-App-Key': made.key })).status, 200);
+
+  // nouvelle clé : l'ancienne meurt tout de suite
+  const next = await (await post(`/api/v1/admin/apps/${made.id}/rotate`, {}, h)).json();
+  assert.equal((await get('/api/v1/live', { 'X-App-Key': made.key })).status, 401);
+  assert.equal((await get('/api/v1/live', { 'X-App-Key': next.key })).status, 200);
+  const audit = (await (await get('/api/v1/admin/audit', h)).json()).audit.map((a: any) => a.action);
+  assert.ok(audit.includes('logiciel révoqué') && audit.includes('clé renouvelée'));
+  assert.equal((await post(`/api/v1/admin/apps/${made.id}/delete`, {}, h)).status, 200);
+});
+
+test('appareil banni : plus d’envoi, même effacé, mais il peut effacer ses données', async () => {
+  const h = { Authorization: `Bearer ${ADMIN}` };
+  const me = { device: 'banni-pilote-1', secret: SECRET, pilot: { first: 'Banni' } };
+  const r = await (await post('/api/v1/points', { ...me, points: [[now() - 5, 44, 5, 1000, 0, 0, 0]] })).json();
+  await post(`/api/v1/admin/pilots/${r.pilot}/block`, { blocked: true, reason: 'test' }, h);
+  assert.equal((await post('/api/v1/points', { ...me, points: [[now() - 2, 44, 5, 1000, 0, 0, 0]] })).status, 403);
+  assert.equal((await post('/api/v1/forget', me)).status, 200, 'le droit d’effacer reste');
+  assert.equal((await post('/api/v1/points', { ...me, points: [[now() - 1, 44, 5, 1000, 0, 0, 0]] })).status, 403, 'effacé, il reste banni');
+  const bans = (await (await get('/api/v1/admin/bans', h)).json()).bans;
+  assert.ok(bans.some((b: any) => b.value === me.device && b.reason === 'test'));
+  await post('/api/v1/admin/bans/lift', { kind: 'device', value: me.device }, h);
+  assert.equal((await post('/api/v1/points', { ...me, points: [[now() - 1, 44, 5, 1000, 0, 0, 0]] })).status, 200);
+});
+
+test('sécurité des réponses : CSP, pas de CORS au back-office, pas de sortie de public/, adresse du proxy', async () => {
+  const h = { Authorization: `Bearer ${ADMIN}` };
+  assert.match(String((await fetch(base + '/admin/')).headers.get('content-security-policy')), /frame-ancestors 'none'/);
+  assert.equal((await get('/api/v1/admin/stats', h)).headers.get('access-control-allow-origin'), null);
+  assert.equal((await fetch(base + '/api/v1/admin/stats', { method: 'OPTIONS' })).headers.get('access-control-allow-origin'), null);
+  assert.equal((await get('/api/v1/live')).headers.get('access-control-allow-origin'), '*');
+  assert.notEqual((await fetch(base + '/..%2f..%2fpackage.json')).status, 200);
+  const { clientIp } = await import('../src/http.ts');
+  const req = (xff: string) => ({ headers: { 'x-forwarded-for': xff }, socket: { remoteAddress: '10.0.0.1' } }) as any;
+  assert.equal(clientIp(req('1.1.1.1, 2.2.2.2'), true), '2.2.2.2', 'la première est choisie par le client');
+  assert.equal(clientIp(req('1.1.1.1'), false), '10.0.0.1', 'sans proxy de confiance, l’en-tête ne compte pas');
+});
+
 test('clé de logiciel exigée', async () => {
   assert.equal((await get('/api/v1/live', {})).status, 401);
   assert.equal((await get('/api/v1')).status, 200, 'la description reste ouverte');
