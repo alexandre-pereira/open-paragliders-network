@@ -4,8 +4,8 @@
 
 const fr = /^fr/i.test(navigator.language);
 const T = fr
-  ? { title: 'Suivi en direct', alt: 'Altitude', spd: 'Vitesse', vz: 'Vario', maps: 'Ouvrir dans une carte', now: 'en direct', ago: 'dernière position il y a {t}', none: 'Aucune position dans les dernières 24 h', gone: 'Ce lien de suivi n’est plus valable', goneHint: 'Le pilote l’a remplacé : demande-lui le nouveau.', down: 'Réseau coupé, nouvel essai…' }
-  : { title: 'Live tracking', alt: 'Altitude', spd: 'Speed', vz: 'Vario', maps: 'Open in a map', now: 'live', ago: 'last position {t} ago', none: 'No position in the last 24 h', gone: 'This tracking link is no longer valid', goneHint: 'The pilot replaced it: ask them for the new one.', down: 'Network down, trying again…' };
+  ? { title: 'Suivi en direct', alt: 'Altitude', spd: 'Vitesse', vz: 'Vario', maps: 'Ouvrir dans une carte', now: 'en direct', ago: 'dernière position il y a {t}', none: 'Aucune position dans les dernières 24 h', gone: 'Ce lien de suivi n’est plus valable', goneHint: 'Le pilote l’a remplacé : demande-lui le nouveau.', down: 'Réseau coupé, nouvel essai…', ok: 'Posé OK à {h}', sos: 'POSÉ PAS OK à {h} : besoin d’aide' }
+  : { title: 'Live tracking', alt: 'Altitude', spd: 'Speed', vz: 'Vario', maps: 'Open in a map', now: 'live', ago: 'last position {t} ago', none: 'No position in the last 24 h', gone: 'This tracking link is no longer valid', goneHint: 'The pilot replaced it: ask them for the new one.', down: 'Network down, trying again…', ok: 'Landed OK at {h}', sos: 'LANDED, NEEDS HELP at {h}' };
 const $ = id => document.getElementById(id);
 const api = '/api/v1/shared/' + encodeURIComponent(location.pathname.split('/').filter(Boolean).pop() ?? '');
 const FRESH_S = 60;
@@ -16,10 +16,26 @@ const map = new maplibregl.Map({ container: 'map', style: 'https://tiles.openfre
 const dot = document.createElement('div');
 dot.className = 'pilot';
 const marker = new maplibregl.Marker({ element: dot });
+// l'état du pilote, là où il l'a dit sur sa trace
+const flagDot = document.createElement('div');
+flagDot.className = 'pilot';
+const flagMark = new maplibregl.Marker({ element: flagDot });
 let pts = [], placed = false, loaded = false, serverLag = 0, fullAt = 0;
 
 const span = s => (s < 90 ? Math.round(s) + ' s' : s < 5400 ? Math.round(s / 60) + ' min' : Math.round(s / 3600) + ' h');
 const fig = (v, d, u) => (v === null || v === undefined ? '—' : `${v.toFixed(d)} ${u}`);
+
+/** posé OK ou posé pas OK : le bandeau et le point sur la trace */
+function drawFlag(s) {
+  const on = !!s;
+  $('flag').hidden = !on;
+  if (!on) { flagMark.remove(); return; }
+  const h = new Date(s.t * 1000).toLocaleTimeString(fr ? 'fr-FR' : 'en-GB', { hour: '2-digit', minute: '2-digit' });
+  $('flag').textContent = T[s.state].replace('{h}', h);
+  $('flag').className = s.state === 'sos' ? 'sos' : '';
+  flagDot.style.background = s.state === 'sos' ? '#c8102e' : '#1a7f3c';
+  if (s.lat !== null && s.lon !== null) flagMark.setLngLat([s.lon, s.lat]).addTo(map); else flagMark.remove();
+}
 
 function draw() {
   const last = pts[pts.length - 1];
@@ -51,6 +67,7 @@ async function tick() {
       // le pilote vient peut-être de couper cet accès : plus rien de lui ne reste à l'écran
       $('figures').hidden = true; $('maps').hidden = true; marker.remove();
       pts = [];
+      drawFlag(null);
       document.title = T.title;
       if (loaded) map.getSource('track').setData({ type: 'FeatureCollection', features: [] });
       map.jumpTo({ center: [6.1, 45.9], zoom: 5 });
@@ -62,6 +79,7 @@ async function tick() {
     $('name').textContent = who || T.title;
     document.title = who ? `${who} – ${T.title}` : T.title;
     $('wing').textContent = d.p.wing;
+    drawFlag(d.status);
     serverLag = Date.now() / 1000 - d.now;
     pts = full ? d.pts : pts.concat(d.pts);
     if (full) fullAt = Date.now();

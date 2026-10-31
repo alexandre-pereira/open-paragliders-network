@@ -88,6 +88,19 @@ if (r.status === 200) storeToken(token);   // only now is the link real
 The link stays the same until the pilot asks for a new one. Offer that button: a pilot uses it to cut someone's access.
 Replace the stored token only after a `200`, and say so if it failed, because the old link is then still alive.
 
+## 6. Landed OK, needs help
+
+When your pilot says how their flight ended, tell the network: `POST /api/v1/status` with `state` `ok` or `sos`, and
+`none` at the next take-off. Keep the last state on the device and send it again until a `200`.
+
+`sos` is public on `https://<server>/sos`, and every connected app gets it in the pilot's `p.status`: show it to the
+pilots nearby, they are often the first to be able to help. It does not alert the rescue services.
+
+## Avoiding double pilots
+
+If your app also receives other networks, the same pilot may reach you twice. Pilots can declare their other
+identifiers in `pilot.ids` (`flarm`, `fanet`, `ogn`, `puretrack`, `xcontest`): merge a contact whose identifier is listed.
+
 ## Checklist before going live
 
 - [ ] Sharing is off until the pilot turns it on.
@@ -95,6 +108,8 @@ Replace the stored token only after a `200`, and say so if it failed, because th
 - [ ] « Forget me » calls `POST /api/v1/forget` and drops the local token.
 - [ ] The pilot is told that anyone holding the tracking link sees their position and their last 24 h.
 - [ ] The tracking link can be regenerated.
+- [ ] Before sending `sos`, the pilot knows that their name and position become public and that it does not call the rescue services.
+- [ ] Nothing is sent from a simulation or a replay.
 - [ ] `device`, `secret` and the token are kept out of logs and shared backups.
 - [ ] Uploads leave the queue only on an answer; `pts` are merged by time.
 - [ ] 401, 403 and 429 keep the queue; any other 4xx drops the batch.

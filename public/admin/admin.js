@@ -102,6 +102,9 @@ function apply3d(on) {
   map.setPaintProperty('pos', 'circle-stroke-width', on ? 0 : 2);
 }
 
+/** l'état déclaré par le pilote, sur sa trace */
+const flagOf = p => ({ ok: 'POSÉ OK', sos: 'POSÉ PAS OK' })[p.p?.status?.state] ?? '';
+
 /** altitude → couleur (bleu en bas, rouge en haut) */
 const altColor = a => { const k = Math.max(0, Math.min(1, ((a ?? 0) - 500) / 3500)); return `hsl(${Math.round(230 - 230 * k)} 85% 45%)`; };
 
@@ -159,13 +162,13 @@ function render() {
           }
         } else lines.push({ type: 'Feature', properties: { id: p.id, color, sel, old }, geometry: { type: 'LineString', coordinates: p.pts.map(f => [f[2], f[1]]) } });
       }
-      points.push({ type: 'Feature', properties: { id: p.id, color, sel, old, label: labels ? `${nameOf(p)}${last[3] != null ? ` · ${last[3]} m` : ''}` : '' }, geometry: { type: 'Point', coordinates: [last[2], last[1]] } });
+      points.push({ type: 'Feature', properties: { id: p.id, color, sel, old, label: labels ? [flagOf(p), nameOf(p), last[3] != null ? `${last[3]} m` : ''].filter(Boolean).join(' · ') : '' }, geometry: { type: 'Point', coordinates: [last[2], last[1]] } });
     }
     map.getSource('tracks').setData({ type: 'FeatureCollection', features: lines });
     map.getSource('pos').setData({ type: 'FeatureCollection', features: points });
     air3d.setData(list.map(p => {
       const last = p.pts[p.pts.length - 1];
-      return { id: p.id, color: colorOf(p.id), sel: p.id === state.sel, old: nowS() - last[0] > OLD_S, pts: p.pts, label: labels ? `${nameOf(p)}${last[3] != null ? ` · ${last[3]} m` : ''}` : '' };
+      return { id: p.id, color: colorOf(p.id), sel: p.id === state.sel, old: nowS() - last[0] > OLD_S, pts: p.pts, label: labels ? [flagOf(p), nameOf(p), last[3] != null ? `${last[3]} m` : ''].filter(Boolean).join(' · ') : '' };
     }), showTracks, byAlt ? f => altColor(Math.floor((f[3] ?? 0) / 250) * 250 + 125) : null);
   }
   if (state.sel) renderDetail();
@@ -181,7 +184,7 @@ function renderList(list) {
     const last = p.pts[p.pts.length - 1];
     const li = el('li', { className: [p.id === state.sel ? 'sel' : '', nowS() - last[0] > OLD_S ? 'old' : '', p.blocked ? 'blocked' : ''].join(' ') },
       el('span', { className: 'sw' }),
-      el('span', { className: 'name', textContent: nameOf(p) }),
+      el('span', { className: 'name', textContent: [p.p?.status?.state === 'sos' ? 'POSÉ PAS OK' : '', nameOf(p)].filter(Boolean).join(' · ') }),
       el('span', { className: 'ago', textContent: ago(last[0]) }),
       el('span', { className: 'sub', textContent: [p.p?.wing, p.p?.app, last[3] != null ? `${last[3]} m` : ''].filter(Boolean).join(' · ') || TYPE_FR[p.p?.type] || '' }));
     li.firstChild.style.background = colorOf(p.id);
@@ -212,6 +215,7 @@ function renderDetail() {
   const last = p.pts[p.pts.length - 1], first = p.pts[0], m = state.meta.get(p.id);
   const dl = el('dl');
   const row = (k, v) => { if (v !== undefined && v !== null && v !== '') dl.append(el('dt', { textContent: k }), el('dd', { textContent: String(v) })); };
+  row('État', flagOf(p));
   row('Voile', p.p?.wing); row('Type', TYPE_FR[p.p?.type]); row('Logiciel', p.p?.app); row('N°', p.id); row('Appareil', m?.device);
   row('Dernier point', `${hhmm(last[0])} (il y a ${ago(last[0])})`);
   row('Altitude', last[3] != null ? `${last[3]} m` : '—');
@@ -226,6 +230,7 @@ function renderDetail() {
     btn(state.follow ? 'Ne plus suivre' : 'Suivre', () => { state.follow = !state.follow; render(); }),
     btn('Trace complète', () => loadFull(p.id)),
     btn('GPX', () => gpx(p)),
+    p.p?.status ? btn('Retirer l’état', () => clearFlag(p.id)) : null,
     btn(p.blocked ? 'Débloquer' : 'Bloquer', () => block(p.id, !p.blocked), 'danger'),
     btn('Effacer', () => removePilot(p.id), 'danger'));
   const close = btn('✕', () => { state.sel = null; state.follow = false; box.hidden = true; state.dirty = true; }, 'icon close');
@@ -288,6 +293,13 @@ async function block(id, blocked) {
   await api(`/admin/pilots/${id}/block`, { method: 'POST', body: JSON.stringify({ blocked }) });
   const p = state.pilots.get(id);
   if (p) p.blocked = blocked;
+  state.dirty = true;
+}
+
+async function clearFlag(id) {
+  await api(`/admin/pilots/${id}/clear`, { method: 'POST', body: '{}' });
+  const p = state.pilots.get(id);
+  if (p?.p) delete p.p.status;
   state.dirty = true;
 }
 

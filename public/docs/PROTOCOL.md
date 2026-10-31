@@ -76,7 +76,9 @@ What other pilots see:
 { "first": "Zoé", "last": "Martin", "wing": "Ozone Zeno 2", "type": "paraglider", "app": "MyVario 2.1" }
 ```
 
-`type`: `paraglider`, `hangglider`, `sailplane`, `paramotor`, `other`. On upload, missing fields keep their value, an
+`type`: `paraglider`, `hangglider`, `sailplane`, `paramotor`, `other`. `ids`: the pilot's identifiers on other networks,
+so that apps receiving several networks show them once: `{ "flarm": "DD1234", "fanet": "…", "ogn": "…", "puretrack": "…",
+"xcontest": "…" }` (10 at most, keys `[a-z0-9_-]`, send `{}` to clear them). `status` is set by the server (§7). On upload, missing fields keep their value, an
 empty string clears it; `name` (full name) is accepted instead of `first`/`last`. Send the profile with the first
 upload and whenever the pilot changes it (it is cheap to send it every time).
 
@@ -321,13 +323,47 @@ no app name. A replaced, erased, blocked or unknown link answers the same `404 u
 
 ---
 
-## 7. Errors
+## 7. Landed OK, needs help
+
+A pilot can declare how their flight ended. It is marked on their track, and **« needs help » becomes public**.
+
+```
+POST /api/v1/status
+X-App-Key: <key>
+
+{ "device": "myvario-8f3k2m1x", "secret": "c2b6…", "state": "sos", "t": 1793440000, "lat": 45.9, "lon": 6.1, "alt": 1420 }
+```
+
+| `state` | |
+|---|---|
+| `sos` | landed, needs help. Shown on `https://<server>/sos`, public, no key, to everyone |
+| `ok` | landed OK. Cancels `sos`; shown on the pilot's track only |
+| `none` | nothing to say any more: send it at the next take-off |
+
+`t`, `lat`, `lon`, `alt` are optional (default: now, the pilot's last fix). Sending the same state again is harmless: keep
+trying until a `200`, a pilot in trouble is often out of coverage. A state stays until the pilot changes it or the
+operator removes it, 72 h at most.
+
+Every app receives it in the pilot's profile, at once and even if the pilot sends no more fixes:
+
+```json
+{ "id": "42", "p": { "first": "Zoé", …, "status": { "state": "sos", "t": 1793440000, "lat": 45.9, "lon": 6.1, "alt": 1420 } } }
+```
+
+`GET /api/v1/sos` (no key) lists the pilots in `sos`: profile, position, time, last 30 min of track.
+
+**This is mutual aid between pilots: it does not alert the rescue services.** Tell the pilot to call 112, and tell them
+that their name and position become public before they send `sos`. Never send `sos` from a simulation or a replay.
+
+---
+
+## 8. Errors
 
 HTTP errors are JSON: `{ "ok": false, "error": "<code>", "message": "…" }`.
 
 | status | code | what to do |
 |---|---|---|
-| 400 | `bad-json`, `bad-device`, `bad-secret`, `bad-points`, `bad-area`, `bad-token` | fix the request; drop the batch |
+| 400 | `bad-json`, `bad-device`, `bad-secret`, `bad-points`, `bad-area`, `bad-token`, `bad-state` | fix the request; drop the batch |
 | 401 | `app-key-required` | key missing or unknown |
 | 403 | `device-taken` | wrong secret for this device: new device id |
 | 403 | `blocked` | pilot blocked by the operator |
@@ -339,9 +375,9 @@ HTTP errors are JSON: `{ "ok": false, "error": "<code>", "message": "…" }`.
 
 ---
 
-## 8. Privacy
+## 9. Privacy
 
 Fixes are kept 72 h (less when the disk is full: the oldest go first), then deleted. A profile without any fix is
 forgotten after 90 days. `POST /api/v1/forget` deletes everything at once. Apps must let the pilot choose to share,
-show which name is published, offer « forget me », and tell the pilot that anyone holding their tracking link sees
-their position and their last 24 h.
+show which name is published, offer « forget me », tell the pilot that anyone holding their tracking link sees
+their position and their last 24 h, and that « needs help » makes their name and position public.
