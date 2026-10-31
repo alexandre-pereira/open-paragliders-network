@@ -9,6 +9,8 @@ rather than in a public issue. Please do not test against a server you do not op
 - **Application keys** are stored as SHA-256 hashes, shown once at creation, and can be rotated or revoked from the
   back-office: open connections of a revoked application are closed at once.
 - **Tracking links**: the token is drawn by the device and only its hash is stored. A new link kills the old one at once.
+- **SOS** (« needs help ») is public on purpose: `/sos` and `GET /api/v1/sos` need no key. They show the name, wing,
+  position and recent track of pilots in `sos`, with no device, pilot id or app name, and nothing about other pilots.
 - **Banned devices** stay banned after their data is erased. A banned pilot can still erase their data.
 - **Limits**: requests, device creation and WebSocket messages per client; failed back-office logins per client and in
   total; request size, decompressed size and connection count.
@@ -21,8 +23,9 @@ rather than in a public issue. Please do not test against a server you do not op
 
 ## What it does not do
 
-- It is not a rescue service: « needs help » does not alert anyone but other pilots.
-- Pilots are identified by their device, not by a verified identity: a name is what the pilot typed.
+- It is not a rescue service: an SOS is shown to other pilots and on a public page, it alerts nobody else.
+- Pilots are identified by their device, not by a verified identity: a name is what the pilot typed, and an SOS can be
+  false.
 - The LiveTrack24 compatibility has no application key, because that protocol has none: it can be turned off (`LT24=0`).
 - A banned person can come back on a new device: revoke the application, or ban the address for 24 h, knowing that a
   mobile operator shares one address between many people.

@@ -8,7 +8,7 @@ pilots around them, whatever app those pilots use, and the other way round.
 | **Live traffic** | The pilots around, pushed every few seconds, each with their recent track |
 | **No lost data** | Uploads can be repeated safely. A client that reconnects receives exactly what it missed |
 | **A tracking link** | One private page per pilot for family and friends, with no app and no account |
-| **Mutual aid** | « Landed OK » and « needs help », shown to the pilots around |
+| **SOS** | A pilot who needs help is shown at once to the pilots around and on a public page, `/sos`. It is mutual aid: it does not call the rescue services |
 | **No accounts to run** | A device identifies itself. There is nothing for your pilots to sign up to |
 
 There is no SDK: it is JSON over HTTP and one WebSocket. Every step below is implemented in
@@ -237,10 +237,13 @@ The new link is how a pilot cuts someone's access, so it has to be honest: repla
 If it failed, say that the old link still works. Send the stored token again at each connection: the same token changes
 nothing, and it brings the link back for a pilot forgotten after 90 days without a fix.
 
-## Step 7: say how the flight ended
+## Step 7: SOS and landed OK
 
-When your pilot says how they landed, tell the network. Keep the last state on the device and send it again until a
-`200`: a pilot in trouble is often out of coverage. Let it through any data-saving setting.
+When your pilot says how they landed, tell the network. That is how a pilot in trouble sends an SOS: it reaches the
+pilots around, and anyone can see it on the public page [`/sos`](/sos).
+
+Send it over HTTP, even with the socket open. Keep the last state on the device and send it again until a `200`: a pilot
+in trouble is often out of coverage. Let it through any data-saving setting.
 
 ```js
 await post('/api/v1/status', { device, secret, state: 'sos', lat, lon, alt });
@@ -248,23 +251,26 @@ await post('/api/v1/status', { device, secret, state: 'sos', lat, lon, alt });
 
 | `state` | Meaning | Who sees it |
 |---|---|---|
-| `sos` | Landed, needs help | **Everyone**, on the public page `https://<server>/sos`, and all connected apps |
-| `ok` | Landed OK. Cancels `sos` | The pilot's track and tracking link |
-| `none` | Nothing to say. Send it at the next take-off | |
+| `sos` | Landed, needs help | **Everyone**, on the public page `https://<server>/sos`, and the apps subscribed to the pilot's area |
+| `ok` | Landed OK. Cancels `sos` | The pilot's track and tracking link, and the apps following that pilot |
+| `none` | Nothing to say: clears the state. Send it after a false alarm or at the next take-off | |
 
-Every app receives it in `p.status`, even if the pilot sends no more fixes. Show it to the pilots around, they are often
-the first able to help.
+Apps subscribed to the pilot's area receive it in `p.status`, at once, even if the pilot sends no more fixes. Show it to
+the pilots around, they are often the first able to help.
 
 ```js
 const s = cur.p?.status;   // { state: 'sos', t: 1793440000, lat: 45.9, lon: 6.1, alt: 1420 }
 ```
+
+An app that connects later gets `p.status` only while the pilot's last fix is younger than `maxAge`, 1 h by default. To
+show every SOS, however old, also poll `GET /api/v1/sos`: it needs no key and lists them with their position.
 
 Four rules, because this one can hurt someone:
 
 - **It does not alert the rescue services.** Tell the pilot to call 112, and keep that first on your screen.
 - **Tell the pilot before sending** that their name and position become public.
 - **Never send `sos` from a simulation or a replay**, and test it only on your own server.
-- **Make cancelling easy**: a false alarm stays public until someone says otherwise, 72 h at most.
+- **Make cancelling easy**: `ok` or `none` takes the pilot off `/sos`. Without it, a false alarm stays public for up to 72 h.
 
 ## Step 8: let the pilot erase everything
 
@@ -305,7 +311,7 @@ Run these on your own server, with the back-office open:
 - [ ] **Dead link.** Block the network without closing the socket. Your app notices within 25 s and reconnects.
 - [ ] **Screen off.** Fixes keep going, and nothing is missed when the screen comes back.
 - [ ] **New link.** The old page says the link is no longer valid, at once. With the network off, your app says so.
-- [ ] **Needs help.** It appears on `/sos`, then disappears with « landed OK ».
+- [ ] **SOS.** It appears on `/sos` and in a second app watching the area, even with no new fix. « Landed OK » takes it off.
 - [ ] **Forget me.** The pilot and the link are gone from the back-office.
 
 ## Before going live

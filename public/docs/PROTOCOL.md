@@ -31,8 +31,9 @@ seconds (UTC). CORS is open, except on the back-office.
 | `wss://<server>/api/v1/ws` | yes | everything above, pushed |
 | `POST /api/v1/share` | yes | create or replace the tracking link |
 | `GET /api/v1/shared/{token}` | token | what a tracking link shows |
-| `POST /api/v1/status` | yes | landed OK, needs help |
-| `GET /api/v1/sos` | no | the pilots who need help |
+| `POST /api/v1/status` | yes | SOS, landed OK |
+| `GET /api/v1/sos` | no | the pilots who sent an SOS |
+| `GET /sos` | no | the same on a public map |
 | `POST /api/v1/forget` | yes | erase everything about a pilot |
 
 ---
@@ -343,15 +344,15 @@ GET /api/v1/shared/<token>?since=1793440000
   "pts": [[1793439460, 45.88, 6.10, 1702, 10.1, 265, 0.8], …] }
 ```
 
-`pts`: the last 24 h at most, one fix per 5 s; with `since` (a fix time), every fix after it. No device, no pilot id,
-no app name. A replaced, erased, blocked or unknown link answers the same `404 unknown-link`. The page is served with
-`noindex` and `no-referrer`.
+`pts`: the last 24 h at most, one fix per 5 s; with `since` (a fix time), every fix after it. `status`: the pilot's
+state, when they have one (§7). No device, no pilot id, no app name. A replaced, erased, blocked or unknown link answers
+the same `404 unknown-link`. The page is served with `noindex` and `no-referrer`.
 
 ---
 
-## 7. Landed OK, needs help
+## 7. SOS and landed OK
 
-A pilot can declare how their flight ended. It is marked on their track, and **« needs help » becomes public**.
+A pilot can declare how their flight ended. It is marked on their track, and **an SOS (« needs help ») becomes public**.
 
 ```
 POST /api/v1/status
@@ -363,20 +364,36 @@ X-App-Key: <key>
 | `state` | |
 |---|---|
 | `sos` | landed, needs help. Shown on `https://<server>/sos`, public, no key, to everyone |
-| `ok` | landed OK. Cancels `sos`; shown on the pilot's track only |
-| `none` | nothing to say any more: send it at the next take-off |
+| `ok` | landed OK. Cancels `sos`; marked on the pilot's track and tracking link, not on `/sos` |
+| `none` | clears the state: a false alarm, or the next take-off |
 
-`t`, `lat`, `lon`, `alt` are optional (default: now, the pilot's last fix). Sending the same state again is harmless: keep
-trying until a `200`, a pilot in trouble is often out of coverage. A state stays until the pilot changes it or the
-operator removes it, 72 h at most.
+`t`, `lat`, `lon`, `alt` are optional (default: now, the pilot's last fix). So are `pilot` and `app`, as in an upload: send
+them, an SOS may be a pilot's very first request. This is HTTP only, there is no WebSocket `op`. Sending the same state
+again is harmless: keep trying until a `200`, a pilot in trouble is often out of coverage. A state stays until the pilot
+changes it or the operator removes it, 72 h at most.
 
-Every app receives it in the pilot's profile, at once and even if the pilot sends no more fixes:
+Apps that follow this pilot, or are subscribed to the area of their last position, receive it in the pilot's profile, at
+once and even if the pilot sends no more fixes:
 
 ```json
 { "id": "42", "p": { "first": "Zoé", …, "status": { "state": "sos", "t": 1793440000, "lat": 45.9, "lon": 6.1, "alt": 1420 } } }
 ```
 
-`GET /api/v1/sos` (no key) lists the pilots in `sos`: profile, position, time, last 30 min of track.
+A later subscriber gets it only while the pilot's last fix is younger than `maxAge`. `GET /api/v1/sos` has no such limit.
+It needs no key and lists the pilots in `sos`, newest first, 200 at most:
+
+```json
+{ "now": 1793440060,
+  "pilots": [{ "p": { "first": "Zoé", "last": "Martin", "wing": "Ozone Zeno 2", "type": "paraglider" },
+               "t": 1793440000, "lat": 45.9, "lon": 6.1, "alt": 1420,
+               "pts": [[1793438200, 45.88, 6.10, 1702, 10.1, 265, 0.8], …] }] }
+```
+
+`lat`, `lon`, `alt`: `null` when the position is unknown. `pts`: the track from 30 min before the SOS until now, one fix
+per 5 s. No device, no pilot id, no app name. A blocked pilot is not listed.
+
+`https://<server>/sos` shows this list on a map, in French or English, refreshed every 15 s. It is served with `noindex`
+and `no-referrer`.
 
 **This is mutual aid between pilots: it does not alert the rescue services.** Tell the pilot to call 112, and tell them
 that their name and position become public before they send `sos`. Never send `sos` from a simulation or a replay.
