@@ -42,6 +42,49 @@ async function client(hello: Record<string, unknown>) {
   return { ws, next, welcome, send: (m: unknown) => ws.send(JSON.stringify(m)) };
 }
 
+test('lien de suivi : un par pilote, l’ancien meurt, ni clé ni autre pilote', async () => {
+  const me = { device: 'lien-de-suivi-1', secret: SECRET, pilot: { first: 'Inès', last: 'Roux', wing: 'Enzo 3' }, app: 'WS Nav 1.4' };
+  const A = 'a'.repeat(24), B = 'b'.repeat(24), t = now() - 30;
+  assert.equal((await post('/api/v1/share', { ...me, token: 'court' })).status, 400);
+  assert.equal((await post('/api/v1/share', { ...me, token: A }, { 'X-App-Key': 'mauvaise' })).status, 401);
+  assert.equal((await post('/api/v1/share', { ...me, token: A })).status, 200);
+  await post('/api/v1/points', { ...me, points: [[t, 45.9, 6.1, 1500, 10, 90, 1], [t + 10, 45.91, 6.1, 1510, 10, 90, 1]] });
+  await post('/api/v1/points', { device: 'lien-de-suivi-2', secret: SECRET, points: [[t, 46, 7, 2000, 10, 90, 1]] });
+
+  // aucune clé : le jeton suffit, et il ne montre que son pilote, sans identifiant ni logiciel
+  const r = await fetch(`${base}/api/v1/shared/${A}`), d = await r.json();
+  assert.equal(r.status, 200);
+  assert.deepEqual(d.p, { first: 'Inès', last: 'Roux', wing: 'Enzo 3', type: 'paraglider' });
+  assert.equal(d.pts.length, 2);
+  assert.ok(!/lien-de-suivi|WS Nav|pilot"/.test(JSON.stringify(d)));
+  assert.equal((await (await fetch(`${base}/api/v1/shared/${A}?since=${t}`)).json()).pts.length, 1, 'seulement la suite');
+
+  // redonner le même : rien ne change ; un autre pilote ne le prend pas
+  assert.equal((await post('/api/v1/share', { ...me, token: A })).status, 200);
+  assert.equal((await post('/api/v1/share', { device: 'lien-de-suivi-2', secret: SECRET, token: A })).status, 409);
+
+  // régénéré : l'ancien cesse de marcher tout de suite, comme un jeton inconnu
+  assert.equal((await post('/api/v1/share', { ...me, token: B })).status, 200);
+  const old = await fetch(`${base}/api/v1/shared/${A}`);
+  assert.equal(old.status, 404);
+  assert.deepEqual(await old.json(), await (await fetch(`${base}/api/v1/shared/${'c'.repeat(24)}`)).json());
+  assert.equal((await fetch(`${base}/api/v1/shared/${B}`)).status, 200);
+
+  // la base n'a que l'empreinte, le jeton n'y est pas
+  assert.ok(!JSON.stringify(run.svc.store.db.prepare('SELECT * FROM shares').all()).includes(B));
+  const page = await fetch(`${base}/p/${B}`);
+  assert.equal(page.status, 200);
+  assert.equal(page.headers.get('referrer-policy'), 'no-referrer');
+  assert.match(String(page.headers.get('x-robots-tag')), /noindex/);
+  assert.match(await page.text(), /track\.js/);
+
+  // « oublie-moi » tue le lien ; le même jeton redonné plus tard le rétablit (profil oublié au bout de 90 jours)
+  await post('/api/v1/forget', me);
+  assert.equal((await fetch(`${base}/api/v1/shared/${B}`)).status, 404);
+  assert.equal((await post('/api/v1/share', { ...me, token: B })).status, 200);
+  assert.equal((await fetch(`${base}/api/v1/shared/${B}`)).status, 200);
+});
+
 test('clé de logiciel exigée', async () => {
   assert.equal((await get('/api/v1/live', {})).status, 401);
   assert.equal((await get('/api/v1')).status, 200, 'la description reste ouverte');

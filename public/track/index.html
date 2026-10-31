@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex, nofollow">
+  <meta name="referrer" content="no-referrer">
+  <title>Suivi en direct</title>
+  <link rel="stylesheet" href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css">
+  <link rel="stylesheet" href="/track/track.css">
+</head>
+<body>
+  <div id="map"></div>
+  <section id="card">
+    <h1 id="name"></h1>
+    <p id="wing"></p>
+    <p id="state"></p>
+    <dl id="figures" hidden>
+      <div><dt id="lAlt"></dt><dd id="alt"></dd></div>
+      <div><dt id="lSpd"></dt><dd id="spd"></dd></div>
+      <div><dt id="lVz"></dt><dd id="vz"></dd></div>
+    </dl>
+    <a id="maps" target="_blank" rel="noopener noreferrer" hidden></a>
+  </section>
+  <script src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
+  <script src="/track/track.js"></script>
+</body>
+</html>

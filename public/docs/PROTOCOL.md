@@ -1,8 +1,11 @@
 # Open Paragliders Network — protocol v1
 
-Open live-tracking protocol for free-flight software (paragliders, hang gliders, sailplanes). Any flight app can
-**send** its pilot's position and **receive** the other pilots, with their recent track, over a link that drops often
+Open live-tracking protocol for free-flight software (paragliders, hang gliders, sailplanes). The aim is one network
+shared by every flight app: a pilot sees the pilots around them whatever app each of them uses. Any app can **send**
+its pilot's position and **receive** the other pilots, with their recent track, over a link that drops often
 (mountains, valleys, a phone in a pocket).
+
+New here? Start with the [integration guide](#integration).
 
 Design goals, in order:
 
@@ -12,7 +15,7 @@ Design goals, in order:
    `permessage-deflate`. HTTP is there too, for apps that cannot keep a socket open.
 3. **Simple to implement.** JSON only, a dozen fields.
 
-Base URL: `https://<server>` (production address given with your app key). Everything is UTF-8 JSON. Times are Unix
+Base URL: `https://<server>` (given with your app key). Everything is UTF-8 JSON. Times are Unix
 seconds (UTC). CORS is open.
 
 ---
@@ -21,9 +24,9 @@ seconds (UTC). CORS is open.
 
 ### Application key
 
-Each flight app gets a key from the server operator. Send it in the `X-App-Key` header (HTTP; `X-WSNav-Key` is accepted too), or in the `hello`
-message (WebSocket), or as `?key=` (WebSocket URL, only when headers are impossible). `GET /api/v1` tells whether a
-key is required (`appKeyRequired`).
+Each flight app gets a key from the server operator (`GET /api/v1` gives their `contact`). Send it in the `X-App-Key`
+header (HTTP), or in the `hello` message (WebSocket), or as `?key=` (WebSocket URL, only when headers are impossible).
+`GET /api/v1` tells whether a key is required (`appKeyRequired`).
 
 ### Device and secret — no account
 
@@ -70,7 +73,7 @@ the same `t` is a duplicate (counted in `dup`, ignored).
 What other pilots see:
 
 ```json
-{ "first": "Alex", "last": "Pereira", "wing": "Ozone Zeno 2", "type": "paraglider", "app": "WS Nav 1.4" }
+{ "first": "Zoé", "last": "Martin", "wing": "Ozone Zeno 2", "type": "paraglider", "app": "MyVario 2.1" }
 ```
 
 `type`: `paraglider`, `hangglider`, `sailplane`, `paramotor`, `other`. On upload, missing fields keep their value, an
@@ -87,7 +90,7 @@ restarted), the answer is a full snapshot flagged `"reset": true`: drop what you
 
 ## 2. Sending
 
-**Recommended client algorithm** (what WS Nav does):
+**Recommended client algorithm**:
 
 1. Every N seconds (3 s recommended) push the latest fix into a **local queue** — persist the queue when it grows
    (app restart in the air).
@@ -110,10 +113,10 @@ Content-Type: application/json
 Content-Encoding: gzip            (optional, recommended for a backlog)
 
 {
-  "device": "wsnav-8f3k2m1x",
+  "device": "myvario-8f3k2m1x",
   "secret": "c2b6…",
-  "app": "WS Nav 1.4",
-  "pilot": { "first": "Alex", "last": "Pereira", "wing": "Ozone Zeno 2", "type": "paraglider" },
+  "app": "MyVario 2.1",
+  "pilot": { "first": "Zoé", "last": "Martin", "wing": "Ozone Zeno 2", "type": "paraglider" },
   "points": [[1793440000, 45.90123, 6.12345, 1834, 10.4, 271, 1.2], …]
 }
 ```
@@ -161,7 +164,7 @@ Answer — an **update** (same shape as the WebSocket `upd`):
   "now": 1793440060,
   "pilots": [
     { "id": "42", "trail": true,
-      "p": { "first": "Alex", "last": "Pereira", "wing": "Ozone Zeno 2", "type": "paraglider", "app": "WS Nav 1.4" },
+      "p": { "first": "Zoé", "last": "Martin", "wing": "Ozone Zeno 2", "type": "paraglider", "app": "MyVario 2.1" },
       "pts": [[1793439460, 45.88, 6.10, 1702, 10.1, 265, 0.8], …] },
     { "id": "57", "pts": [[1793440057, 45.95, 6.21, 2210, 12.0, 90, -1.1]] },
     { "id": "61", "gone": true }
@@ -271,24 +274,74 @@ The same paths are also served under `/lt24/`.
 
 ---
 
-## 6. Errors
+## 6. Tracking link
+
+Each pilot can have one private link for their family and friends, who need no app and no account:
+`https://<server>/p/<token>` opens a live map of that pilot alone. The link is permanent until the pilot replaces it.
+
+```
+POST /api/v1/share
+X-App-Key: <key>
+
+{ "device": "myvario-8f3k2m1x", "secret": "c2b6…", "token": "Wq3vT0m2…", "pilot": { … }, "app": "MyVario 2.1" }
+```
+
+Answer: `{ "ok": true, "pilot": "42" }`.
+
+| rule | |
+|---|---|
+| `token` | drawn **by your app**: at least 16 random bytes from a secure generator, 22–64 chars `[A-Za-z0-9_-]` (base64url). The server stores only its SHA-256, so it can never show the link again and a stolen database gives no link |
+| One link per pilot | a new `token` replaces the previous one, which **stops working at once** |
+| Same `token` again | changes nothing. Send it again at each connection: a pilot forgotten after 90 days without a fix gets the same link back |
+
+**Client algorithm**
+
+1. Keep the token on the device, out of backups and logs. Show the link only once the server answered `200`.
+2. Offer two actions: share the link (the system share sheet), and generate a new one.
+3. To generate a new one: draw a token, `POST` it, and replace the stored token **only after a `200`**. Without an
+   answer the old link is still alive: tell the pilot, do not pretend it was cut. Regenerating is a privacy action.
+4. `POST /api/v1/forget` deletes the link with everything else: drop the stored token too.
+
+What the link shows, read by the page (no app key, the token is enough):
+
+```
+GET /api/v1/shared/<token>
+GET /api/v1/shared/<token>?since=1793440000
+```
+
+```json
+{ "p": { "first": "Zoé", "last": "Martin", "wing": "Ozone Zeno 2", "type": "paraglider" },
+  "now": 1793440060,
+  "pts": [[1793439460, 45.88, 6.10, 1702, 10.1, 265, 0.8], …] }
+```
+
+`pts`: the last 24 h at most, one fix per 5 s; with `since` (a fix time), every fix after it. No device, no pilot id,
+no app name. A replaced, erased, blocked or unknown link answers the same `404 unknown-link`. The page is served with
+`noindex` and `no-referrer`.
+
+---
+
+## 7. Errors
 
 HTTP errors are JSON: `{ "ok": false, "error": "<code>", "message": "…" }`.
 
 | status | code | what to do |
 |---|---|---|
-| 400 | `bad-json`, `bad-device`, `bad-secret`, `bad-points`, `bad-area` | fix the request; drop the batch |
+| 400 | `bad-json`, `bad-device`, `bad-secret`, `bad-points`, `bad-area`, `bad-token` | fix the request; drop the batch |
 | 401 | `app-key-required` | key missing or unknown |
 | 403 | `device-taken` | wrong secret for this device: new device id |
 | 403 | `blocked` | pilot blocked by the operator |
+| 404 | `unknown-link` | tracking link replaced, erased or unknown |
+| 409 | `token-taken` | this token belongs to another pilot: draw a new one |
 | 413 | `too-many-points`, `body-too-large` | smaller batches |
 | 429 | `rate-limited` | wait a minute; keep the queue |
 | 5xx | | keep the queue, retry |
 
 ---
 
-## 7. Privacy
+## 8. Privacy
 
 Fixes are kept 72 h (less when the disk is full: the oldest go first), then deleted. A profile without any fix is
 forgotten after 90 days. `POST /api/v1/forget` deletes everything at once. Apps must let the pilot choose to share,
-show which name is published, and offer « forget me ».
+show which name is published, offer « forget me », and tell the pilot that anyone holding their tracking link sees
+their position and their last 24 h.

@@ -54,6 +54,11 @@ CREATE TABLE IF NOT EXISTS lt24 (
   pid INTEGER NOT NULL,
   at INTEGER NOT NULL
 );
+CREATE TABLE IF NOT EXISTS shares (
+  pid INTEGER PRIMARY KEY,
+  hash TEXT NOT NULL UNIQUE,
+  at INTEGER NOT NULL
+);
 `;
 
 type Row = Record<string, unknown>;
@@ -116,6 +121,9 @@ export class Store {
     p('lt24Get', 'SELECT pid FROM lt24 WHERE sid = ?');
     p('lt24Put', 'INSERT INTO lt24 (sid, pid, at) VALUES (?, ?, ?) ON CONFLICT (sid) DO UPDATE SET pid = excluded.pid, at = excluded.at');
     p('lt24Purge', 'DELETE FROM lt24 WHERE at < ?');
+    p('sharePid', 'SELECT pid FROM shares WHERE hash = ?');
+    p('sharePut', 'INSERT INTO shares (pid, hash, at) VALUES (?, ?, ?) ON CONFLICT (pid) DO UPDATE SET hash = excluded.hash, at = excluded.at');
+    p('delShare', 'DELETE FROM shares WHERE pid = ?');
   }
 
   close() { try { this.db.close(); } catch { /* déjà fermée */ } }
@@ -137,8 +145,12 @@ export class Store {
   setBlocked(pid: number, b: boolean) { this.st.blocked.run(b ? 1 : 0, pid); }
   /** le pilote et toute sa trace */
   deletePilot(pid: number) {
-    this.tx(() => { this.st.delPoints.run(pid); this.st.delLt24.run(pid); this.st.delPilot.run(pid); });
+    this.tx(() => { this.st.delPoints.run(pid); this.st.delLt24.run(pid); this.st.delShare.run(pid); this.st.delPilot.run(pid); });
   }
+  /** le pilote d'un lien de suivi (empreinte du jeton) */
+  sharePid(hash: string): number | undefined { return (this.st.sharePid.get(hash) as Row | undefined)?.pid as number | undefined; }
+  /** le lien de suivi du pilote : un seul, le précédent cesse de marcher */
+  setShare(pid: number, hash: string, now: number) { this.st.sharePut.run(pid, hash, now); }
 
   // ── points ─────────────────────────────────────────────────────────────────────────────────────────────────────
 

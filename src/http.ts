@@ -19,7 +19,7 @@ const PUBLIC = resolve(import.meta.dirname, '..', 'public');
 const MAX_BODY = 4 * 1048576;
 const MIME: Record<string, string> = {
   '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8',
-  '.svg': 'image/svg+xml', '.png': 'image/png', '.ico': 'image/x-icon', '.json': 'application/json', '.md': 'text/markdown; charset=utf-8',
+  '.svg': 'image/svg+xml', '.png': 'image/png', '.ico': 'image/x-icon', '.json': 'application/json', '.md': 'text/markdown; charset=utf-8', '.mjs': 'text/plain; charset=utf-8',
 };
 
 /** comptage par IP sur une fenêtre fixe d'une minute */
@@ -80,8 +80,11 @@ export class Api {
       if (this.svc.cfg.lt24 && /^(\/lt24)?\/(client|track)\.php$/.test(path)) {
         return this.send(req, res, 200, handleLt24(this.svc, path, url.searchParams), { 'Content-Type': 'text/plain; charset=utf-8' });
       }
-      if (path === '/') return this.send(req, res, 302, '', { Location: '/admin/' });
+      if (path === '/') return this.send(req, res, 302, '', { Location: '/docs/' });
+      if (path === '/docs' && !url.pathname.endsWith('/')) return this.send(req, res, 302, '', { Location: '/docs/' });
       if (path === '/admin' && !url.pathname.endsWith('/')) return this.send(req, res, 302, '', { Location: '/admin/' });
+      // la page d'un lien de suivi ; le jeton, lu dans l'adresse par la page, ne part jamais ailleurs (no-referrer)
+      if (/^\/p\/[^/]+$/.test(path)) return this.static(req, res, '/track/index.html');
       return this.static(req, res, url.pathname);
     } catch (e) {
       if (e instanceof HttpError) return this.json(req, res, e.status, { ok: false, error: e.code, message: e.message });
@@ -101,6 +104,9 @@ export class Api {
       return this.json(req, res, 200, await this.admin(req, m, path.slice('/api/v1/admin/'.length), q));
     }
     if (path === '/api/v1' && m === 'GET') return this.json(req, res, 200, this.info());
+    // un lien de suivi : le jeton suffit, ses lecteurs (les proches du pilote) n'ont pas de clé de logiciel
+    const sm = /^\/api\/v1\/shared\/([^/]+)$/.exec(path);
+    if (m === 'GET' && sm) return this.json(req, res, 200, svc.shared(sm[1], q.get('since')));
     // X-WSNav-Key : l'en-tête des autres serveurs WeSoar (src/core/services.ts de WS Nav, keyedRequest)
     const app = this.appOf(req.headers['x-app-key'] ?? req.headers['x-wsnav-key'] ?? q.get('key'));
     if (app === null) throw new HttpError(401, 'app-key-required', 'clé de logiciel absente ou inconnue (en-tête X-App-Key)');
@@ -113,6 +119,9 @@ export class Api {
       const body = await readJson(req);
       const p = svc.authDevice(body, { create: true });
       return this.json(req, res, 200, { ok: true, pilot: String(p.pid), p: svc.updateProfile(p, body.pilot, body.app) });
+    }
+    if (m === 'POST' && path === '/api/v1/share') {
+      return this.json(req, res, 200, svc.share(await readJson(req)));
     }
     if (m === 'POST' && path === '/api/v1/forget') {
       svc.forget(await readJson(req));
@@ -137,7 +146,7 @@ export class Api {
   info() {
     const c = this.svc.cfg;
     return {
-      name: 'open-paragliders-network', version: VERSION, protocol: PROTOCOL, now: Math.floor(this.svc.now()),
+      name: 'open-paragliders-network', version: VERSION, protocol: PROTOCOL, contact: c.contact, now: Math.floor(this.svc.now()),
       retentionH: c.retentionH, liveWindowS: c.liveWindowMin * 60, minEvery: c.minEvery, defaultEvery: c.defaultEvery,
       defaultTrailS: c.defaultTrailS, maxBatch: c.maxBatch, appKeyRequired: c.appKeys.length > 0, lt24: c.lt24,
     };
@@ -222,7 +231,7 @@ export class Api {
     if (!existsSync(file) || !statSync(file).isFile()) throw new HttpError(404, 'not-found');
     res.writeHead(200, {
       'Content-Type': MIME[extname(file)] ?? 'application/octet-stream', 'Cache-Control': 'no-cache',
-      'X-Content-Type-Options': 'nosniff', 'Referrer-Policy': 'no-referrer', 'X-Frame-Options': 'DENY',
+      'X-Content-Type-Options': 'nosniff', 'Referrer-Policy': 'no-referrer', 'X-Frame-Options': 'DENY', 'X-Robots-Tag': 'noindex, nofollow',
     });
     createReadStream(file).pipe(res);
   }

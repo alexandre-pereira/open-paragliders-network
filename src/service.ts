@@ -7,13 +7,17 @@
 import { createHash, randomBytes, scryptSync, timingSafeEqual } from 'node:crypto';
 import { statfsSync } from 'node:fs';
 import type { Config } from './config.ts';
-import { parseFix, type NewFix } from './fix.ts';
+import { parseFix, wire, type NewFix } from './fix.ts';
 import { Live } from './live.ts';
 import { EMPTY_PROFILE, mergeProfile, sameProfile, type Profile } from './profile.ts';
 import type { PilotRow, Store } from './store.ts';
 
 export const DEVICE_RE = /^[A-Za-z0-9_.:@-]{6,80}$/;
 export const SECRET_MIN = 16;
+/** jeton d'un lien de suivi : tiré au hasard par l'appareil, 128 bits au moins */
+export const SHARE_RE = /^[A-Za-z0-9_-]{22,64}$/;
+/** ce qu'un lien de suivi remonte (h), et un point par SHARED_STEP s dans cette trace */
+const SHARED_H = 24, SHARED_STEP = 5;
 
 export class HttpError extends Error {
   readonly status: number;
@@ -130,6 +134,36 @@ export class Service {
     const p = this.authDevice(body, { profile: mergeProfile(EMPTY_PROFILE, body.pilot, body.app) });
     if (body.pilot !== undefined || body.app !== undefined) this.updateProfile(p, body.pilot, body.app);
     return this.ingestFor(p, body.points ?? []);
+  }
+
+  /**
+   * le lien de suivi du pilote, à donner à ses proches : le jeton est tiré par l'appareil, qui le garde ; le serveur
+   * n'en a que l'empreinte (une base volée ne donne aucun lien). Un nouveau jeton remplace l'ancien, qui cesse de
+   * marcher tout de suite ; redonner le même ne change rien, et rétablit le lien d'un pilote oublié entre-temps.
+   */
+  share(body: Record<string, unknown>) {
+    const token = typeof body.token === 'string' ? body.token : '';
+    if (!SHARE_RE.test(token)) throw new HttpError(400, 'bad-token', 'token : 22 à 64 caractères parmi A-Z a-z 0-9 _ -');
+    const p = this.authDevice(body, { profile: mergeProfile(EMPTY_PROFILE, body.pilot, body.app) });
+    if (body.pilot !== undefined || body.app !== undefined) this.updateProfile(p, body.pilot, body.app);
+    const hash = sha256(token), owner = this.store.sharePid(hash);
+    if (owner !== undefined && owner !== p.pid) throw new HttpError(409, 'token-taken');
+    this.store.setShare(p.pid, hash, Math.floor(this.now()));
+    return { ok: true as const, pilot: String(p.pid) };
+  }
+
+  /**
+   * ce qu'un lien de suivi montre : le nom et la trace de ce seul pilote, des dernières SHARED_H heures au plus, sans
+   * identifiant ni logiciel ; `since` : les points d'après cette heure. Sans jeton connu, la même réponse pour tous
+   */
+  shared(token: string, since: string | null) {
+    const pid = SHARE_RE.test(token) ? this.store.sharePid(sha256(token)) : undefined;
+    const p = pid === undefined ? undefined : this.live.pilots.get(pid);
+    if (pid === undefined || !p || p.blocked) throw new HttpError(404, 'unknown-link');
+    const nowS = Math.floor(this.now()), oldest = nowS - Math.min(SHARED_H, this.cfg.retentionH) * 3600;
+    const after = since !== null && since !== '' && Number.isFinite(Number(since)) ? Number(since) + 1 : null;
+    const { first, last, wing, type } = p.profile;
+    return { p: { first, last, wing, type }, now: nowS, pts: this.store.track(pid, Math.max(oldest, after ?? 0), nowS + 120, 100000, after === null ? SHARED_STEP : 0).map(wire) };
   }
 
   /** le pilote efface tout ce que le serveur a de lui */

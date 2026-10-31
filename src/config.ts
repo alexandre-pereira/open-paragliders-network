@@ -25,6 +25,8 @@ export interface Config {
   appKeys: AppKey[];
   /** mot de passe du back-office ; vide = back-office fermé */
   adminToken: string;
+  /** où demander une clé de logiciel : public, dans GET /api/v1 */
+  contact: string;
   /** compatibilité LiveTrack24 (XCSoar, LK8000…) */
   lt24: boolean;
   /** derrière un proxy (Caddy, nginx) : l'IP du client est prise dans X-Forwarded-For */
@@ -74,6 +76,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     defaultTrailS: num(env, 'DEFAULT_TRAIL_S', 600, 0, 24 * 3600),
     appKeys: parseKeys(env.APP_KEYS),
     adminToken: env.ADMIN_TOKEN || '',
+    contact: env.CONTACT || '',
     lt24: bool(env, 'LT24', true),
     trustProxy: bool(env, 'TRUST_PROXY', false),
     pilotTtlDays: num(env, 'PILOT_TTL_DAYS', 90, 1),
