@@ -73,3 +73,5 @@ legend { color: var(--muted); font-size: 12px; padding: 0 4px; }
   #side.hidden { margin-left: 0; height: 48px; }
   #map { height: auto; }
 }
+
+.view3d { font-weight: 700; font-size: 12px; color: #1d2330; }

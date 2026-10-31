@@ -58,10 +58,11 @@ $('loginForm').addEventListener('submit', async e => {
 // ── carte ────────────────────────────────────────────────────────────────────────────────────────────────────────
 
 const map = new maplibregl.Map({
-  container: 'map', style: 'https://tiles.openfreemap.org/styles/liberty', center: [6.2, 45.9], zoom: 7, hash: true,
+  container: 'map', style: baseStyle(), center: [6.2, 45.9], zoom: 7, hash: true, maxPitch: MAX_PITCH,
   attributionControl: { compact: true },
 });
-map.addControl(new maplibregl.NavigationControl(), 'top-right');
+map.addControl(new maplibregl.NavigationControl({ visualizePitch: true }), 'top-right');
+map.addControl(new View3d(), 'top-right');
 map.addControl(new maplibregl.ScaleControl({ unit: 'metric' }), 'bottom-right');
 const mapReady = new Promise(ok => map.on('load', ok));
 
