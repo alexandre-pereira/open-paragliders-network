@@ -23,7 +23,7 @@ writeFileSync(file, JSON.stringify(secrets, null, 2));
 const run = await start(loadConfig({ ...process.env, HOST: '127.0.0.1', DATA_DIR: dataDir, APP_KEYS: `wsnav:${secrets.key}`, ADMIN_TOKEN: secrets.admin, TRUST_PROXY: '1' }));
 
 // winget ajoute cloudflared au PATH des nouveaux terminaux seulement
-const winget = join(process.env.LOCALAPPDATA ?? '', 'Microsoft', 'WinGet', 'Links', 'cloudflared.exe');
+const winget = join(process.env.LOCALAPPDATA ?? '', 'Microsoft', 'WinGet', 'Packages', 'Cloudflare.cloudflared_Microsoft.Winget.Source_8wekyb3d8bbwe', 'cloudflared.exe');
 const exe = process.env.CLOUDFLARED || (existsSync(winget) ? winget : 'cloudflared');
 const tunnel = spawn(exe, ['tunnel', '--no-autoupdate', '--url', `http://127.0.0.1:${run.port}`], { stdio: ['ignore', 'pipe', 'pipe'] });
 

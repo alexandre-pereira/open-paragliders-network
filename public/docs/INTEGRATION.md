@@ -69,6 +69,7 @@ Each `upd` carries `seq`: keep the last one and give it back as `since` when you
 - `p` is the profile, sent once and when it changes: keep it;
 - `gone` means remove the pilot;
 - with `reset: true`, drop everything and start again.
+- your own pilot comes back too: skip the `pilot` id given by `welcome`.
 
 Send a new `sub` when the pilot has moved a quarter of the radius, not at every fix. Send `ping` every 15 s, and
 reconnect if no `pong` comes within 10 s: a mobile link often looks open while nothing passes.
