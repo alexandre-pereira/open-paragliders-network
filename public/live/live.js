@@ -7,7 +7,7 @@ import { LEAGUES, circle, closingZone, leagueScore, scoreFlight } from '/lib/xc.
 
 const fr = /^fr/i.test(navigator.language);
 const T = fr ? {
-  title: 'En direct', tails: 'Traces des pilotes', search: 'Rechercher un pilote, une voile…', sort: 'Trier par', rule: 'Règles de distance',
+  title: 'En direct', tailOn: 'Montrer sa trace sur la carte', tailFull: '{n} traces au plus : décoche un autre pilote', search: 'Rechercher un pilote, une voile…', sort: 'Trier par', rule: 'Règles de distance',
   sorts: { km: 'Distance', fai: 'Triangle FAI', name: 'Nom', alt: 'Altitude', recent: 'Dernière position' },
   leagues: { xcontest: 'XContest', cfd: 'CFD (FFVL)' }, gaps: { xc20: 'écart < 20 %', xc5: 'écart < 5 %', cfd: 'écart ≤ 5 % ou 3 km' },
   count: '{n} pilotes aujourd’hui · {f} en vol', none: 'Personne n’a encore volé aujourd’hui.', noMatch: 'Aucun pilote ne correspond.',
@@ -19,7 +19,7 @@ const T = fr ? {
   center: 'Centrer', follow: 'Suivre', unfollow: 'Ne plus suivre', pilot: 'Pilote {n}', fold: 'Replier la liste', unfold: 'Déplier la liste',
   conn: 'En direct', down: 'Réseau coupé, nouvel essai…', about: 'À propos de cette carte', group: '{n} pilotes : zoomer',
 } : {
-  title: 'Live', tails: 'Pilots’ tracks', search: 'Search a pilot, a wing…', sort: 'Sort by', rule: 'Distance rules',
+  title: 'Live', tailOn: 'Show their track on the map', tailFull: '{n} tracks at most: untick another pilot', search: 'Search a pilot, a wing…', sort: 'Sort by', rule: 'Distance rules',
   sorts: { km: 'Distance', fai: 'FAI triangle', name: 'Name', alt: 'Altitude', recent: 'Last position' },
   leagues: { xcontest: 'XContest', cfd: 'CFD (FFVL)' }, gaps: { xc20: 'gap < 20 %', xc5: 'gap < 5 %', cfd: 'gap ≤ 5 % or 3 km' },
   count: '{n} pilots today · {f} flying', none: 'Nobody has flown today yet.', noMatch: 'No pilot matches.',
@@ -39,6 +39,8 @@ const LIST_EVERY = 10000, SEL_EVERY = 5000;
 const FLYING_S = 120;
 /** groupes : au-delà de CLUSTER_MIN pilotes, sous le zoom CLUSTER_MAX_Z, par cases de CELL px, à partir de 3 */
 const CLUSTER_MIN = 25, CLUSTER_MAX_Z = 13, CELL = 64, CLUSTER_N = 3;
+/** traces des autres pilotes cochées à la fois, au plus */
+const TAILS_MAX = 10;
 
 const store = {
   get(k) { try { return localStorage.getItem(k); } catch { return null; } },
@@ -48,9 +50,14 @@ const state = {
   pilots: new Map(), lag: 0, firstFit: !/^#\d/.test(location.hash), online: null,
   sel: null, follow: false, league: LEAGUES[store.get('opn.league')] ? store.get('opn.league') : 'xcontest', target: null,
   sort: T.sorts[store.get('opn.sort')] ? store.get('opn.sort') : 'km', groups: { singles: [], clusters: [] },
-  // les traces des autres pilotes : cachées par défaut, seules leurs positions
-  tails: store.get('opn.tails') === '1',
+  // les traces des autres pilotes : cachées par défaut, seules leurs positions ; une case par pilote, TAILS_MAX au plus
+  tails: new Set(readTails()),
 };
+
+function readTails() {
+  try { const v = JSON.parse(store.get('opn.tailIds') ?? '[]'); return Array.isArray(v) ? v.map(String).slice(0, TAILS_MAX) : []; } catch { return []; }
+}
+const saveTails = () => store.set('opn.tailIds', JSON.stringify([...state.tails]));
 
 const nowS = () => Date.now() / 1000 - state.lag;
 const nameOf = p => [p.p?.first, p.p?.last].filter(Boolean).join(' ') || T.pilot.replace('{n}', p.id);
@@ -67,9 +74,7 @@ const flying = p => nowS() - p.last[0] <= FLYING_S && !!p.flight && p.last[0] - 
 $('title').replaceChildren(el('small', { textContent: 'Open Paragliders Network' }), T.title);
 document.title = `Open Paragliders Network – ${T.title}`;
 $('q').placeholder = T.search;
-$('lSort').textContent = T.sort; $('lRule').textContent = T.rule; $('lTails').textContent = T.tails;
-$('tails').checked = state.tails;
-$('tails').addEventListener('change', () => { state.tails = $('tails').checked; store.set('opn.tails', state.tails ? '1' : '0'); drawPilots(); });
+$('lSort').textContent = T.sort; $('lRule').textContent = T.rule;
 $('sort').replaceChildren(...Object.entries(T.sorts).map(([v, t]) => el('option', { value: v, textContent: t })));
 $('rule').replaceChildren(...Object.keys(LEAGUES).map(v => el('option', { value: v, textContent: T.leagues[v] })));
 $('sort').value = state.sort; $('rule').value = state.league;
@@ -122,6 +127,7 @@ $('about').addEventListener('click', e => { if (e.target === $('about')) $('abou
 
 const map = new maplibregl.Map({ container: 'map', style: baseStyle(), center: [6.5, 45.9], zoom: 7, hash: true, maxPitch: MAX_PITCH, attributionControl: { compact: true } });
 map.addControl(new maplibregl.NavigationControl({ visualizePitch: true }), 'top-right');
+followSun(map);
 const view3d = new View3d(), air3d = new Air3d();
 view3d.onChange = on => apply3d(on);
 map.addControl(view3d, 'top-right');
@@ -314,11 +320,11 @@ function drawPilots() {
   }));
   for (const c of g.clusters) feats.push({ type: 'Feature', geometry: { type: 'Point', coordinates: [c.lon, c.lat] }, properties: { cluster: true, count: c.members.length, key: c.key } });
   map.getSource('pos').setData({ type: 'FeatureCollection', features: feats });
-  const lines = g.singles.filter(p => state.tails && p.tail?.length > 1 && p.id !== sel).map(p => ({ type: 'Feature', properties: { id: p.id, color: colorOf(p.id) }, geometry: { type: 'LineString', coordinates: p.tail.map(f => [f[2], f[1]]) } }));
+  const lines = g.singles.filter(p => state.tails.has(p.id) && p.tail?.length > 1 && p.id !== sel).map(p => ({ type: 'Feature', properties: { id: p.id, color: colorOf(p.id) }, geometry: { type: 'LineString', coordinates: p.tail.map(f => [f[2], f[1]]) } }));
   map.getSource('tails').setData({ type: 'FeatureCollection', features: lines });
   air3d.setData(g.singles.map(p => ({
     id: p.id, color: colorOf(p.id), sel: p.id === sel, old: !flying(p), label: labelOf(p),
-    pts: p.id === sel && state.sel.pts?.length ? state.sel.pts : state.tails && p.tail?.length ? p.tail : [p.last],
+    pts: p.id === sel && state.sel.pts?.length ? state.sel.pts : state.tails.has(p.id) && p.tail?.length ? p.tail : [p.last],
   })), true, null);
 }
 
@@ -347,19 +353,36 @@ function renderList() {
   const all = state.pilots.size, list = sorted(visible());
   const air = [...state.pilots.values()].filter(flying).length;
   $('count').textContent = T.count.replace('{n}', all).replace('{f}', air);
+  // une case cochée d'un pilote parti de la carte ne doit pas prendre une des TAILS_MAX places
+  if (all) for (const id of state.tails) if (!state.pilots.has(id)) { state.tails.delete(id); saveTails(); }
+  const full = state.tails.size >= TAILS_MAX;
   if (!list.length) { $('list').replaceChildren(el('li', { className: 'empty', textContent: all ? T.noMatch : T.none })); return; }
   $('list').replaceChildren(...list.slice(0, 600).map(p => {
     const sos = p.p?.status?.state === 'sos';
     const state1 = sos ? T.sosShort : flying(p) ? (p.last[3] != null ? `${p.last[3]} m` : T.flying) : span(nowS() - p.last[0]);
     const li = el('li', { className: [p.id === state.sel?.id ? 'sel' : '', flying(p) ? '' : 'down', sos ? 'sos' : ''].join(' ') },
       el('span', { className: 'sw' }),
-      el('span', { className: 'name', textContent: nameOf(p) }),
+      el('span', { className: 'name' }, tailBox(p.id, full), el('span', { textContent: nameOf(p) })),
       el('span', { className: 'km' }, p.flight ? `${num(p.flight.km)} km` : '—', p.flight?.fai ? el('small', { textContent: `FAI ${num(p.flight.fai, 0)}` }) : null),
       el('span', { className: 'sub', textContent: [wingOf(p), state1].filter(Boolean).join(' · ') }));
     li.firstChild.style.background = colorOf(p.id);
     li.addEventListener('click', () => select(p.id, true));
     return li;
   }));
+}
+
+/** la case « trace » à côté du nom : la trace de ce pilote sur la carte ; pleine, les cases vides se grisent */
+function tailBox(id, full) {
+  const on = state.tails.has(id);
+  const box = el('input', { type: 'checkbox', checked: on, disabled: full && !on, title: full && !on ? T.tailFull.replace('{n}', TAILS_MAX) : T.tailOn });
+  box.setAttribute('aria-label', T.tailOn);
+  box.addEventListener('click', e => e.stopPropagation());
+  box.addEventListener('change', () => {
+    if (box.checked && state.tails.size >= TAILS_MAX) { box.checked = false; return; }
+    if (box.checked) state.tails.add(id); else state.tails.delete(id);
+    saveTails(); renderList(); drawPilots();
+  });
+  return box;
 }
 
 function renderDetail() {

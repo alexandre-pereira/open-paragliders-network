@@ -20,8 +20,6 @@ label > select { margin-top: 2px; color: var(--fg); }
 .row { display: flex; gap: 8px; margin-top: 8px; }
 .row > label { flex: 1; min-width: 0; }
 .muted { color: var(--muted); }
-label.check { display: flex; align-items: center; gap: 6px; margin-top: 8px; color: var(--fg); font-size: 13px; cursor: pointer; }
-label.check input { width: auto; margin: 0; }
 
 #side { width: 340px; flex: none; display: flex; flex-direction: column; background: var(--panel); border-right: 1px solid var(--line); z-index: 2; }
 #side header { display: flex; align-items: center; gap: 8px; padding: 10px 12px; border-bottom: 1px solid var(--line); }
@@ -33,7 +31,10 @@ label.check input { width: auto; margin: 0; }
 #list li { display: grid; grid-template-columns: 12px 1fr auto; gap: 1px 8px; align-items: center; padding: 6px 4px; border-radius: 6px; cursor: pointer; }
 #list li:hover, #list li.sel { background: color-mix(in srgb, var(--accent) 12%, transparent); }
 #list .sw { width: 12px; height: 12px; border-radius: 50%; grid-row: span 2; }
-#list .name { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#list .name { display: flex; align-items: center; gap: 6px; min-width: 0; font-weight: 600; }
+#list .name > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#list .name input { flex: none; width: 15px; height: 15px; margin: 0; cursor: pointer; }
+#list .name input:disabled { cursor: not-allowed; }
 #list .km { grid-row: span 2; text-align: right; font-weight: 700; font-variant-numeric: tabular-nums; }
 #list .km small { display: block; font-weight: 500; color: var(--muted); font-size: 11px; }
 #list .sub { grid-column: 2; color: var(--muted); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
