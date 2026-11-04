@@ -1,5 +1,5 @@
 // Le fond de carte « Naturel » de WS Nav pour les cartes du serveur (back-office, carte publique, lien de suivi) :
-// couleurs vues d'avion (forêts sombres, alpages, éboulis, neige, lacs profonds), ombrage à quatre lumières et du vrai soleil, courbes de niveau, sommets, et le relief en
+// couleurs vues d'avion (forêts sombres, alpages, éboulis, neige, lacs profonds), ombrage « Lisible » à quatre lumières, courbes de niveau, sommets, et le relief en
 // 3D avec son ciel. OpenMapTiles (OpenFreeMap) et les tuiles d'altitude Mapzen, sans clé. Le relief sert une seule fois
 // ses tuiles à la teinte, à l'ombrage et aux courbes.
 'use strict';
@@ -21,47 +21,13 @@ const contourTiles = demSource.contourProtocolUrl({
   thresholds: { 10: [200, 1000], 11: [100, 500], 12: [100, 500], 13: [50, 250], 14: [20, 100] },
 });
 
-// ombrage à quatre lumières basses liées à l'écran et ombrage du vrai soleil : ceux du fond « Naturel » de WS Nav
+// l'ombrage « Lisible » du fond « Naturel » de WS Nav : quatre lumières basses fixes, liées à l'écran. Pas d'ombre du
+// vrai soleil : rasante le soir et nulle la nuit, elle assombrit toute la carte
 const RELIEF = {
   altitude: [18, 28, 18, 34],
   highlight: ['rgba(255,243,215,0.62)', 'rgba(255,243,215,0.88)', 'rgba(255,243,215,0.62)', 'rgba(255,243,215,0.30)'],
   shadow: ['rgba(14,22,36,0.80)', 'rgba(14,22,36,1)', 'rgba(14,22,36,0.80)', 'rgba(14,22,36,0.34)'],
 };
-const SUN_SHADOW = 'rgba(20,35,80,0.42)', SUN_LIGHT = 'rgba(255,214,140,0.28)';
-
-/** position du soleil (algorithme simplifié de l'Astronomical Almanac, ±0,01°), en degrés */
-function sunPosition(date, lat, lon) {
-  const D2R = Math.PI / 180;
-  const n = date.getTime() / 86400000 + 2440587.5 - 2451545.0;
-  const L = (280.46 + 0.9856474 * n) % 360;
-  const g = ((357.528 + 0.9856003 * n) % 360) * D2R;
-  const lam = (L + 1.915 * Math.sin(g) + 0.02 * Math.sin(2 * g)) * D2R;
-  const eps = (23.439 - 0.0000004 * n) * D2R;
-  const ra = Math.atan2(Math.cos(eps) * Math.sin(lam), Math.cos(lam));
-  const dec = Math.asin(Math.sin(eps) * Math.sin(lam));
-  const gmst = (((18.697374558 + 24.06570982441908 * n) % 24) + 24) % 24;
-  const ha = (gmst * 15 + lon) * D2R - ra;
-  const la = lat * D2R;
-  const el = Math.asin(Math.sin(la) * Math.sin(dec) + Math.cos(la) * Math.cos(dec) * Math.cos(ha));
-  const az = Math.atan2(-Math.sin(ha), Math.tan(dec) * Math.cos(la) - Math.sin(la) * Math.cos(ha));
-  return { azimuth: ((az / D2R) % 360 + 360) % 360, elevation: el / D2R };
-}
-
-/** l'ombre du vrai soleil sur la carte, comme dans l'appli : le soleil d'en ce moment au centre de la vue, suivi à
- *  chaque minute et quand la carte s'arrête ailleurs ; la nuit, plus d'ombre du soleil */
-function followSun(map) {
-  const place = () => {
-    if (!map.getLayer('sun')) return;
-    const c = map.getCenter(), s = sunPosition(new Date(), c.lat, c.lng);
-    map.setPaintProperty('sun', 'hillshade-illumination-direction', s.azimuth);
-    map.setPaintProperty('sun', 'hillshade-illumination-altitude', Math.max(3, s.elevation));
-    map.setPaintProperty('sun', 'hillshade-exaggeration', s.elevation < 0 ? 0 : 0.75);
-  };
-  if (map.loaded()) place(); else map.once('load', place);
-  map.on('moveend', place);
-  setInterval(place, 60000);
-}
-
 function baseStyle() {
   const z = (...stops) => ['interpolate', ['exponential', 1.5], ['zoom'], ...stops];
   const cls = (...c) => ['match', ['get', 'class'], c, true, false];
@@ -115,17 +81,6 @@ function baseStyle() {
         'hillshade-highlight-color': RELIEF.highlight,
         'hillshade-shadow-color': RELIEF.shadow,
         'hillshade-exaggeration': 1,
-      } },
-      // le vrai soleil : l'ombre là où les pentes sont à l'ombre en ce moment (followSun)
-      { id: 'sun', type: 'hillshade', source: 'dem', paint: {
-        'hillshade-method': 'basic',
-        'hillshade-illumination-anchor': 'map',
-        'hillshade-illumination-direction': 200,
-        'hillshade-illumination-altitude': 30,
-        'hillshade-shadow-color': SUN_SHADOW,
-        'hillshade-highlight-color': SUN_LIGHT,
-        'hillshade-accent-color': 'rgba(0,0,0,0)',
-        'hillshade-exaggeration': 0.75,
       } },
       omt('water', 'fill', 'water', { paint: { 'fill-color': '#41708C' } }),
       omt('water-edge', 'line', 'water', { paint: { 'line-color': 'rgba(40,70,90,0.6)', 'line-width': 0.7 } }),

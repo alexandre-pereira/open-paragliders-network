@@ -63,7 +63,6 @@ const map = new maplibregl.Map({
   attributionControl: { compact: true },
 });
 map.addControl(new maplibregl.NavigationControl({ visualizePitch: true }), 'top-right');
-followSun(map);
 const view3d = new View3d(), air3d = new Air3d();
 view3d.onChange = apply3d;
 map.addControl(view3d, 'top-right');

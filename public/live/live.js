@@ -127,7 +127,6 @@ $('about').addEventListener('click', e => { if (e.target === $('about')) $('abou
 
 const map = new maplibregl.Map({ container: 'map', style: baseStyle(), center: [6.5, 45.9], zoom: 7, hash: true, maxPitch: MAX_PITCH, attributionControl: { compact: true } });
 map.addControl(new maplibregl.NavigationControl({ visualizePitch: true }), 'top-right');
-followSun(map);
 const view3d = new View3d(), air3d = new Air3d();
 view3d.onChange = on => apply3d(on);
 map.addControl(view3d, 'top-right');
