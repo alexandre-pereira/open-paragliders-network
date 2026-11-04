@@ -9,6 +9,11 @@ const DEM_URL = 'https://s3.amazonaws.com/elevation-tiles-prod/terrarium/{z}/{x}
 const DEM_CREDIT = 'Relief <a href="https://github.com/tilezen/joerd/blob/master/docs/attribution.md">Mapzen Terrain Tiles</a> (AWS Open Data)';
 /** relief à sa vraie hauteur (demande du 04/11 : plus d’exagération) ; les pilotes en 3D suivent la même échelle */
 const EXAGGERATION = 1;
+/** finesse du dessin, au plus 2 pixels par point comme dans l'appli : au-delà (écrans 2,3 à 3,5) la carte en 3D demande
+ *  2 à 3 fois plus de mémoire au processeur graphique pour une différence qui ne se voit pas */
+const PIXEL_RATIO = Math.min(window.devicePixelRatio || 1, 2);
+/** couleur sous la carte : celle du sol, pour qu'une image pas encore dessinée ne fasse pas un éclair blanc */
+const GROUND = '#93A566';
 /** inclinaison de la vue 3D, et la plus forte permise */
 const PITCH_3D = 62, MAX_PITCH = 75;
 
@@ -53,7 +58,7 @@ function baseStyle() {
       'atmosphere-blend': ['interpolate', ['linear'], ['zoom'], 0, 1, 10, 1, 13, 0],
     },
     layers: [
-      { id: 'bg', type: 'background', paint: { 'background-color': '#93A566' } },
+      { id: 'bg', type: 'background', paint: { 'background-color': GROUND } },
       // prés et champs en bas, alpages olive, pierre grise nue au-dessus de 2300 m, puis la neige
       { id: 'hypso', type: 'color-relief', source: 'dem', paint: {
         'color-relief-color': ['interpolate', ['linear'], ['elevation'], 0, '#A2AD70', 500, '#93A566', 1000, '#86995B', 1500, '#8C9A5F', 1900, '#9D9B6D',
@@ -126,6 +131,7 @@ function baseStyle() {
 class View3d {
   onAdd(map) {
     this.map = map;
+    map.getContainer().style.background = GROUND;
     this.box = document.createElement('div');
     this.box.className = 'maplibregl-ctrl maplibregl-ctrl-group';
     this.btn = document.createElement('button');

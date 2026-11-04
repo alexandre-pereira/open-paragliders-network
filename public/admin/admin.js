@@ -59,7 +59,7 @@ $('loginForm').addEventListener('submit', async e => {
 // ── carte ────────────────────────────────────────────────────────────────────────────────────────────────────────
 
 const map = new maplibregl.Map({
-  container: 'map', style: baseStyle(), center: [6.2, 45.9], zoom: 7, hash: true, maxPitch: MAX_PITCH,
+  container: 'map', style: baseStyle(), center: [6.2, 45.9], zoom: 7, hash: true, maxPitch: MAX_PITCH, pixelRatio: PIXEL_RATIO,
   attributionControl: { compact: true },
 });
 map.addControl(new maplibregl.NavigationControl({ visualizePitch: true }), 'top-right');

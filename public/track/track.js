@@ -19,7 +19,7 @@ const SEL = '#0047ff', OTHER = '#7b8db8';
 $('lAlt').textContent = T.alt; $('lSpd').textContent = T.spd; $('lVz').textContent = T.vz; $('lKm').textContent = T.km; $('maps').textContent = T.maps;
 $('lFlights').textContent = T.flights;
 
-const map = new maplibregl.Map({ container: 'map', style: baseStyle(), center: [6.1, 45.9], zoom: 5, maxPitch: MAX_PITCH, attributionControl: { compact: true } });
+const map = new maplibregl.Map({ container: 'map', style: baseStyle(), center: [6.1, 45.9], zoom: 5, maxPitch: MAX_PITCH, pixelRatio: PIXEL_RATIO, attributionControl: { compact: true } });
 map.addControl(new maplibregl.NavigationControl({ visualizePitch: true }), 'top-right');
 const view3d = new View3d(), air3d = new Air3d();
 view3d.onChange = on => { air3d.setOn(!!on); draw(); };
