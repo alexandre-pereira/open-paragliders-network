@@ -5,7 +5,7 @@
 
 Un seul serveur de livetracking pour tous les logiciels de vol libre : chaque pilote envoie sa position, tous
 reçoivent en direct les pilotes autour d'eux **avec leur trace**, et rien ne se perd quand le réseau coupe.
-Une carte de back-office montre et filtre toutes les traces en ligne.
+Une carte publique montre les vols du jour comme XContest Live, une carte de back-office toutes les traces en ligne.
 
 Le direct demande un processus qui tourne en permanence (WebSocket), donc un VPS plutôt qu'un hébergement mutualisé.
 
@@ -18,7 +18,9 @@ Le direct demande un processus qui tourne en permanence (WebSocket), donc un VPS
 | Coupures | Chaque mise à jour porte un curseur (`seq`). Reconnecté avec `since`, le client reçoit exactement ce qu'il a manqué. Les points envoyés en retard par un pilote revenu dans le réseau sont transmis aussi et comblent sa trace chez tous. Liaison muette détectée des deux côtés (ping). |
 | Pilotes | Prénom, nom, voile, type d'aéronef, logiciel : visibles des autres. Pas de compte : l'appareil choisit un identifiant et un secret, réservés au premier envoi. « Oublie-moi » efface tout. |
 | Historique | 72 h, puis effacé. Base bornée (`MAX_DB_MB`) et place libre gardée sur le disque (`MIN_FREE_DISK_MB`) : au-delà, les plus vieux points sont réécrits (la place libérée sert aux suivants, le fichier ne grossit plus). |
-| Lien de suivi | Un lien par pilote (`/p/<jeton>`), permanent, à partager aux proches : une carte en direct de ce seul pilote, 24 h au plus, sans appli ni compte. Le pilote peut le régénérer : l'ancien cesse de marcher tout de suite. Le jeton est tiré par l'appareil, le serveur n'en garde que l'empreinte. |
+| Carte publique | `/` : les pilotes du jour, comme XContest Live, sans appli ni clé. Pour chacun son dernier vol de la journée (jour solaire là où il est), sa distance libre, le triangle FAI ou plat qu'il ferait s'il bouclait ; recherche, tri, groupes de pilotes quand ils sont trop serrés, traces des autres sur demande. Un pilote choisi montre tout son dernier vol, ses points XContest ou CFD (au choix) et les cercles où il doit revenir pour boucler son triangle (XContest : 20 % et 5 % pour le ×1,6 ; CFD : 5 % ou 3 km). Relief en 3D avec les pilotes à leur altitude. Un pilote qui dit `public: false` n'y est pas. |
+| Vols | Une trace est découpée en vols (arrêt au sol, trou dans la trace) : plusieurs vols le même jour ne font pas un seul trait (`public/lib/flights.js`). Distances et triangles dans `public/lib/xc.js`, le même code pour le serveur et les pages. |
+| Lien de suivi | Un lien par pilote (`/p/<jeton>`), permanent, à partager aux proches : une carte en direct de ce seul pilote, avec tout ce que le serveur garde (72 h) découpé en vols et la distance de chacun, en 3D, sans appli ni compte. Le pilote peut le régénérer : l'ancien cesse de marcher tout de suite. Le jeton est tiré par l'appareil, le serveur n'en garde que l'empreinte. |
 | SOS | Un pilote posé qui a besoin d'aide le signale (`POST /api/v1/status`) : son nom et sa position s'affichent sur la page publique `/sos`, visible de tous sans appli ni compte, et partent aussitôt aux logiciels abonnés à sa zone, même s'il n'envoie plus de points. « Posé OK » retire l'alerte, sinon elle dure 72 h au plus. C'est de l'entraide entre pilotes : ça ne prévient pas les secours. |
 | Back-office | `/admin/` : carte MapLibre de toutes les traces, avec le fond Terrain de WS Nav (teinte d'altitude, ombrage, courbes de niveau) et le relief en 3D où les pilotes et leurs traces sont à leur altitude réelle (bouton 2D / 3D), période de 30 min à 72 h ou personnalisée, suivi en direct, recherche (nom, voile, logiciel, appareil), filtres type / vu depuis / altitude, couleur par pilote ou par altitude, fiche pilote, trace complète, export GPX, blocage, effacement, retrait d'une alerte ; état de la base et du disque. |
 | Autres logiciels | Doc publique servie par le serveur (`/docs/` : [guide d'intégration](public/docs/INTEGRATION.md), [protocole](public/docs/PROTOCOL.md), [client d'exemple](public/docs/example.mjs)), GeoJSON (`/api/v1/live.geojson`), et **compatibilité LiveTrack24** : XCSoar, LK8000… envoient sans changement en réglant l'adresse du serveur. |
@@ -104,11 +106,15 @@ src/profile.ts   profil du pilote
 src/store.ts     SQLite : pilotes, points (anneau 72 h / place), sessions LiveTrack24
 src/live.ts      mémoire du direct : traces récentes, journal, curseurs, mises à jour par abonné
 src/service.ts   appareils et secrets, envoi, oubli, bannissements, entretien chaque minute
+src/daymap.ts    carte publique : dernier vol du jour de chaque pilote, distances recalculées en tâche de fond
 src/apps.ts      logiciels autorisés : clés créées, renouvelées, révoquées au back-office
 src/http.ts      API HTTP, back-office, fichiers
 src/ws.ts        WebSocket
 src/lt24.ts      LiveTrack24
-public/admin/    carte du back-office (basemap.js : fond et relief, air3d.js : pilotes en l'air en 3D)
+public/live/     carte publique du jour (servie à /)
+public/admin/    carte du back-office
+public/lib/      partagé : basemap.js (fond et relief), air3d.js (pilotes en l'air en 3D), xc.js (distances, triangles,
+                 points XContest / CFD), flights.js (découpage en vols) ; xc.js et flights.js servent aussi au serveur
 public/track/    page d'un lien de suivi
 public/sos/      page publique des SOS
 public/docs/     doc des développeurs, servie à /docs/

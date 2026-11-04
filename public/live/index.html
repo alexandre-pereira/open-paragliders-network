@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex, nofollow">
+  <meta name="referrer" content="no-referrer">
+  <meta name="description" content="Les pilotes de vol libre en direct : distance, triangles, traces du jour.">
+  <title>Open Paragliders Network – en direct</title>
+  <link rel="stylesheet" href="https://unpkg.com/maplibre-gl@5.24.0/dist/maplibre-gl.css" integrity="sha384-uTttxo/aOKbdE5RlD/SPzSDoDmNvGlUYPjONi2MN/b7c9HPSvW07OIuyP7uL6jxK" crossorigin="anonymous">
+  <link rel="stylesheet" href="/live/live.css">
+</head>
+<body>
+  <aside id="side">
+    <header>
+      <h1 id="title"></h1>
+      <span id="conn" class="dot"></span>
+      <button id="aboutBtn" type="button" class="icon">?</button>
+      <button id="fold" type="button" class="icon"></button>
+    </header>
+    <div class="tools">
+      <input id="q" type="search" autocomplete="off">
+      <div class="row">
+        <label><span id="lSort"></span><select id="sort"></select></label>
+        <label><span id="lRule"></span><select id="rule"></select></label>
+      </div>
+      <label class="check"><input id="tails" type="checkbox"> <span id="lTails"></span></label>
+      <p id="count" class="muted"></p>
+    </div>
+    <ul id="list"></ul>
+  </aside>
+
+  <main id="map"></main>
+
+  <section id="detail" class="card" hidden></section>
+
+  <div id="about" class="overlay" hidden>
+    <div class="card about">
+      <button id="aboutClose" type="button" class="icon close">✕</button>
+      <div id="aboutText"></div>
+    </div>
+  </div>
+
+  <script src="https://unpkg.com/maplibre-gl@5.24.0/dist/maplibre-gl.js" integrity="sha384-5+cfbwT0iiub6VsQAdn6yz16nr6sDiQoHx6tm4O8OVYXHYOxcffFmCJBL0dgdvGp" crossorigin="anonymous"></script>
+  <script src="https://unpkg.com/maplibre-contour@0.1.1/dist/index.min.js" integrity="sha384-f2gK0HoDkM64k6ZBnbv6ZuvMzDqPOwrfTaIU9iv2BN7CWHyyTQJkPC9AoRNuuV39" crossorigin="anonymous"></script>
+  <script src="/lib/basemap.js"></script>
+  <script src="/lib/air3d.js"></script>
+  <script type="module" src="/live/live.js"></script>
+</body>
+</html>

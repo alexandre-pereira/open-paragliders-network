@@ -1,19 +1,26 @@
-:root { --ink: #111; --soft: #555; --card: #fff; --line: #0047ff; }
-@media (prefers-color-scheme: dark) { :root { --ink: #f2f2f2; --soft: #aaa; --card: #181818; --line: #5b8cff; } }
+:root { --ink: #111; --soft: #555; --card: #fff; --line: #0047ff; --rule: #e2e4e9; --hover: #eef2ff; }
+@media (prefers-color-scheme: dark) { :root { --ink: #f2f2f2; --soft: #aaa; --card: #181818; --line: #5b8cff; --rule: #33373f; --hover: #232a3d; } }
 html, body { height: 100%; margin: 0; font: 16px/1.35 system-ui, sans-serif; color: var(--ink); background: var(--card); }
 #map { position: fixed; inset: 0; }
-#card { position: fixed; left: 12px; right: 12px; bottom: calc(12px + env(safe-area-inset-bottom)); max-width: 420px; margin: 0 auto; padding: 12px 14px; background: var(--card); border-radius: 12px; box-shadow: 0 2px 12px rgba(0, 0, 0, .3); }
+#card { position: fixed; left: 12px; right: 12px; bottom: calc(12px + env(safe-area-inset-bottom)); max-width: 420px; max-height: 48vh; overflow: auto; margin: 0 auto; padding: 12px 14px; box-sizing: border-box; background: var(--card); border-radius: 12px; box-shadow: 0 2px 12px rgba(0, 0, 0, .3); }
+@media (min-width: 900px) { #card { right: auto; width: 380px; margin: 0; max-height: calc(100vh - 24px); } }
 h1 { margin: 0; font-size: 1.15rem; }
+h2 { margin: 12px 0 4px; font-size: .8rem; color: var(--soft); text-transform: uppercase; letter-spacing: .04em; }
 p { margin: 2px 0 0; color: var(--soft); font-size: .9rem; }
 p:empty { display: none; }
 #state { color: var(--ink); font-weight: 600; }
 #flag { margin: 6px 0 2px; padding: 6px 8px; border-radius: 6px; font-weight: 700; color: #fff; background: #1a7f3c; }
 #flag.sos { background: #c8102e; }
-#flag[hidden] { display: none; }
+[hidden] { display: none !important; }
 dl { display: flex; gap: 18px; margin: 8px 0 0; }
-dl[hidden] { display: none; }
 dt { color: var(--soft); font-size: .75rem; }
 dd { margin: 0; font-weight: 700; font-variant-numeric: tabular-nums; }
 #maps { display: inline-block; margin-top: 8px; color: var(--line); font-size: .9rem; }
-#maps[hidden] { display: none; }
+#flights { list-style: none; margin: 0; padding: 0; }
+#flights li { display: flex; justify-content: space-between; align-items: center; gap: 10px; padding: 6px; border-top: 1px solid var(--rule); border-radius: 6px; cursor: pointer; font-size: .9rem; }
+#flights li:hover, #flights li.sel { background: var(--hover); }
+#flights li.sel { font-weight: 600; }
+#flights b { font-variant-numeric: tabular-nums; white-space: nowrap; }
+#flights small { display: block; color: var(--soft); font-size: .8rem; font-weight: 400; }
 .pilot { width: 16px; height: 16px; border: 3px solid #fff; border-radius: 50%; background: var(--line); box-shadow: 0 0 4px rgba(0, 0, 0, .5); }
+.view3d { font-weight: 700; font-size: 12px; color: #1d2330; }

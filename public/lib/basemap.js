@@ -1,6 +1,7 @@
-// Le fond de carte « Terrain » de WS Nav pour le back-office : teinte d'altitude, végétation, routes blanches, ombrage à
-// quatre lumières, courbes de niveau, sommets, et le relief en 3D avec son ciel. OpenMapTiles (OpenFreeMap) et les
-// tuiles d'altitude Mapzen, sans clé. Le relief sert une seule fois ses tuiles à la teinte, à l'ombrage et aux courbes.
+// Le fond de carte « Terrain » de WS Nav pour les cartes du serveur (back-office, carte publique, lien de suivi) :
+// teinte d'altitude, végétation, routes blanches, ombrage à quatre lumières, courbes de niveau, sommets, et le relief en
+// 3D avec son ciel. OpenMapTiles (OpenFreeMap) et les tuiles d'altitude Mapzen, sans clé. Le relief sert une seule fois
+// ses tuiles à la teinte, à l'ombrage et aux courbes.
 'use strict';
 
 const OMT = 'https://tiles.openfreemap.org/planet';

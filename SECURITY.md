@@ -11,6 +11,9 @@ rather than in a public issue. Please do not test against a server you do not op
 - **Tracking links**: the token is drawn by the device and only its hash is stored. A new link kills the old one at once.
 - **SOS** (« needs help ») is public on purpose: `/sos` and `GET /api/v1/sos` need no key. They show the name, wing,
   position and recent track of pilots in `sos`, with no device, pilot id or app name, and nothing about other pilots.
+- **Public map** (`/`, `GET /api/v1/map`) is public on purpose, like XContest Live: name, wing, type, position and the
+  last flight of the day of each pilot, with no device, pilot secret, app or ids. A pilot whose profile says
+  `public: false` is not on it; blocked pilots never are. The answer is the same for everyone for 3 s.
 - **Banned devices** stay banned after their data is erased. A banned pilot can still erase their data.
 - **Limits**: requests, device creation and WebSocket messages per client; failed back-office logins per client and in
   total; request size, decompressed size and connection count.

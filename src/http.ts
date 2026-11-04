@@ -39,6 +39,8 @@ const CSP = "default-src 'none'; script-src 'self' https://unpkg.com; style-src 
   + "connect-src 'self' wss: https://tiles.openfreemap.org https://s3.amazonaws.com; worker-src blob:; child-src blob:; base-uri 'none'; form-action 'self'; frame-ancestors 'none'";
 /** une connexion LiveTrack24 avec mot de passe coûte un scrypt, qui bloque le serveur le temps du calcul */
 const LT24_LOGIN_COST = 20;
+/** la carte publique est la même pour tous ses lecteurs : calculée et compressée au plus une fois par MAP_CACHE_MS */
+const MAP_CACHE_MS = 3000;
 
 export class Api {
   private rate: RateLimiter;
@@ -47,6 +49,7 @@ export class Api {
   private adminFailsAll: RateLimiter = new RateLimiter(100);
   /** abonnés WebSocket (pour les statistiques) */
   wsCount: () => number = () => 0;
+  private mapCache = { at: 0, json: '', gz: null as Buffer | null };
 
   readonly svc: Service;
   constructor(svc: Service) { this.svc = svc; this.rate = new RateLimiter(svc.cfg.rateHttp); }
@@ -80,7 +83,8 @@ export class Api {
         if (url.searchParams.has('pass') && !this.rate.hit(ip, LT24_LOGIN_COST)) throw new HttpError(429, 'rate-limited', 'trop de requêtes, réessayer dans une minute');
         return this.send(req, res, 200, handleLt24(this.svc, path, url.searchParams), { 'Content-Type': 'text/plain; charset=utf-8' });
       }
-      if (path === '/') return this.send(req, res, 302, '', { Location: '/docs/' });
+      // la carte publique du jour
+      if (path === '/') return this.static(req, res, '/live/index.html');
       if (path === '/docs' && !url.pathname.endsWith('/')) return this.send(req, res, 302, '', { Location: '/docs/' });
       if (path === '/admin' && !url.pathname.endsWith('/')) return this.send(req, res, 302, '', { Location: '/admin/' });
       // la page d'un lien de suivi ; le jeton, lu dans l'adresse par la page, ne part jamais ailleurs (no-referrer)
@@ -116,6 +120,10 @@ export class Api {
     if (m === 'GET' && sm) return this.json(req, res, 200, svc.shared(sm[1], q.get('since')));
     // les pilotes qui ont dit « posé pas OK » : public, pour que tout le monde puisse les voir
     if (m === 'GET' && path === '/api/v1/sos') return this.json(req, res, 200, svc.sosList());
+    // la carte publique : sans clé, comme XContest Live ; un pilote qui l'a refusée (profil public: false) n'y est pas
+    if (m === 'GET' && path === '/api/v1/map') return this.mapList(req, res);
+    const mm = /^\/api\/v1\/map\/(\d+)$/.exec(path);
+    if (m === 'GET' && mm) return this.json(req, res, 200, svc.mapPilot(Number(mm[1]), q.get('since')));
     // X-WSNav-Key : l'en-tête des autres serveurs WeSoar (src/core/services.ts de WS Nav, keyedRequest)
     const app = this.appOf(req.headers['x-app-key'] ?? req.headers['x-wsnav-key'] ?? q.get('key'));
     if (app === null) throw new HttpError(401, 'app-key-required', 'clé de logiciel absente ou inconnue (en-tête X-App-Key)');
@@ -155,6 +163,22 @@ export class Api {
       return this.json(req, res, 200, { id: pm[1], p: p.profile, pts: svc.store.track(pid, from, to, 100000, step).map(wire) });
     }
     throw new HttpError(404, 'not-found');
+  }
+
+  /** la carte publique, depuis la mémoire de MAP_CACHE_MS, déjà compressée */
+  private mapList(req: IncomingMessage, res: ServerResponse) {
+    const c = this.mapCache, now = Date.now();
+    if (now - c.at > MAP_CACHE_MS) { c.at = now; c.json = JSON.stringify(this.svc.mapList()); c.gz = null; }
+    const h: Record<string, string> = { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff', 'Access-Control-Allow-Origin': '*' };
+    let data: Buffer = Buffer.from(c.json);
+    if (data.length > 1024 && /\bgzip\b/.test(String(req.headers['accept-encoding'] ?? ''))) {
+      data = c.gz ??= gzipSync(data, { level: 6 });
+      h['Content-Encoding'] = 'gzip';
+      h.Vary = 'Accept-Encoding';
+    }
+    h['Content-Length'] = String(data.length);
+    res.writeHead(200, h);
+    res.end(data);
   }
 
   info() {

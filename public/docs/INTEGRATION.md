@@ -7,6 +7,7 @@ pilots around them, whatever app those pilots use, and the other way round.
 |---|---|
 | **Live traffic** | The pilots around, pushed every few seconds, each with their recent track |
 | **No lost data** | Uploads can be repeated safely. A client that reconnects receives exactly what it missed |
+| **A public live map** | `https://<server>/`: every pilot of the day with their distance and the triangle they would close, like XContest Live. A pilot can stay off it |
 | **A tracking link** | One private page per pilot for family and friends, with no app and no account |
 | **SOS** | A pilot who needs help is shown at once to the pilots around and on a public page, `/sos`. It is mutual aid: it does not call the rescue services |
 | **No accounts to run** | A device identifies itself. There is nothing for your pilots to sign up to |
@@ -80,10 +81,12 @@ const pilot = {
   brand: 'Gin', wing: 'Leopard M',     // shown together: « Gin Leopard M »
   type: 'paraglider',                  // paraglider, hangglider, sailplane, paramotor, other
   ids: { flarm: 'DD1234' },            // optional, see « Avoid double pilots »
+  public: true,                        // false: not on the public web map (other apps still see the pilot)
 };
 ```
 
-Let the pilot see and change the published name, and leave sharing off until they turn it on.
+Let the pilot see and change the published name, and leave sharing off until they turn it on. Offer a switch for
+the public map (`public`), on by default, and send it every time: a missing field keeps its last value.
 
 ## Step 3: send through a queue
 
@@ -215,7 +218,7 @@ How the server closes a socket:
 ## Step 6: offer the tracking link
 
 Each pilot can have one private link for their family and friends: `https://<server>/p/<token>`. It shows that pilot
-alone, with their last 24 h. It needs no app and no key.
+alone, with everything the server keeps (72 h), split into flights, and follows them live. It needs no app and no key.
 
 Draw the token on the device. The server keeps only its hash, so it cannot show the link again.
 
@@ -313,7 +316,9 @@ Run these on your own server, with the back-office open:
 
 - [ ] Sharing is off until the pilot turns it on, and nothing is sent in simulation or replay.
 - [ ] The pilot sees the name that is published, and can change it.
-- [ ] The pilot is told that anyone holding the tracking link sees their position and their last 24 h.
+- [ ] The pilot is told that their name, wing, position and the track of their last flight of the day are on the
+  public map at `https://<server>/` unless they turn `public` off, and can turn it off.
+- [ ] The pilot is told that anyone holding the tracking link sees their position and every track the server keeps (72 h).
 - [ ] The tracking link can be regenerated, and the screen tells the truth when that fails.
 - [ ] Before `sos`, the pilot knows that their name and position become public and that it does not call the rescue services.
 - [ ] « Forget me » erases the server and the device.

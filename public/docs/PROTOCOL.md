@@ -34,6 +34,9 @@ seconds (UTC). CORS is open, except on the back-office.
 | `POST /api/v1/status` | yes | SOS, landed OK |
 | `GET /api/v1/sos` | no | the pilots who sent an SOS |
 | `GET /sos` | no | the same on a public map |
+| `GET /api/v1/map` | no | the public live map: every pilot of the day, their last flight and distances |
+| `GET /api/v1/map/{id}` | no | one pilot of that map: their whole last flight |
+| `GET /` | no | the public live map page |
 | `POST /api/v1/forget` | yes | erase everything about a pilot |
 
 ---
@@ -97,7 +100,9 @@ What other pilots see:
 `brand`: the maker of the wing, `wing`: its model and size, both free text; show them together. A wing that only has
 `wing` (« Ozone Zeno 2 ») stays valid. `type`: `paraglider`, `hangglider`, `sailplane`, `paramotor`, `other`. `ids`: the pilot's identifiers on other networks,
 so that apps receiving several networks show them once: `{ "flarm": "DD1234", "fanet": "…", "ogn": "…", "puretrack": "…",
-"xcontest": "…" }` (10 at most, keys `[a-z0-9_-]`, send `{}` to clear them). `status` is set by the server (§7). On upload, missing fields keep their value, an
+"xcontest": "…" }` (10 at most, keys `[a-z0-9_-]`, send `{}` to clear them). `public`: `false` keeps the pilot off the
+public web map (§11), `true` puts them back; absent, the last value stays (on by default). Other apps and the tracking
+link still show the pilot. `status` is set by the server (§7). On upload, missing fields keep their value, an
 empty string clears it; `name` (full name) is accepted instead of `first`/`last`. Send the profile with the first
 upload and whenever the pilot changes it (it is cheap to send it every time).
 
@@ -307,7 +312,8 @@ The same paths are also served under `/lt24/`.
 ## 6. Tracking link
 
 Each pilot can have one private link for their family and friends, who need no app and no account:
-`https://<server>/p/<token>` opens a live map of that pilot alone. The link is permanent until the pilot replaces it.
+`https://<server>/p/<token>` opens a live map of that pilot alone, with everything the server keeps (72 h) split into
+flights. The link is permanent until the pilot replaces it.
 
 ```
 POST /api/v1/share
@@ -345,7 +351,8 @@ GET /api/v1/shared/<token>?since=1793440000
   "pts": [[1793439460, 45.88, 6.10, 1702, 10.1, 265, 0.8], …] }
 ```
 
-`pts`: the last 24 h at most, one fix per 5 s; with `since` (a fix time), every fix after it. `status`: the pilot's
+`pts`: the whole history kept (`retentionH`), one fix per 5 s; with `since` (a fix time), every fix after it. The page
+splits it into flights (§11). `status`: the pilot's
 state, when they have one (§7). No device, no pilot id, no app name. A replaced, erased, blocked or unknown link answers
 the same `404 unknown-link`. The page is served with `noindex` and `no-referrer`.
 
@@ -448,4 +455,56 @@ A mobile operator shares one address between many phones: on `429`, keep your qu
 Fixes are kept 72 h (less when the disk is full: the oldest go first), then deleted. A profile without any fix is
 forgotten after 90 days. `POST /api/v1/forget` deletes everything at once. Apps must let the pilot choose to share,
 show which name is published, offer « forget me », tell the pilot that anyone holding their tracking link sees
-their position and their last 24 h, and that « needs help » makes their name and position public.
+their position and every track the server keeps, that their name, wing, position and the track of their last flight of
+the day are on the public map unless `public` is `false`, and that « needs help » makes their name and position public.
+
+---
+
+## 11. Public live map
+
+`https://<server>/` is a public map of the day, like XContest Live: anyone can watch, with no app and no key. It shows
+each pilot whose profile does not say `public: false`, with **their last flight of the day** only: the day is the solar
+day where the pilot is (midnight by the sun at their longitude). A pilot on the ground who has not flown yet stays on it
+for 30 min after their last fix. Earlier flights stay on the tracking link (§6).
+
+**Flights.** A track is cut into flights where the pilot stopped on the ground (slower than 2.5 m/s for 5 min at the
+same height, or walking slowly up or down), or where it has a hole: 10 min when the pilot was slow on either side,
+45 min in any case. A piece with less than a minute faster than 4 m/s is not a flight (waiting at take-off, walking).
+An app that refills its queue after a network cut leaves no hole: send every fix you recorded.
+
+**Distances** (`public/lib/xc.js`, also used by the page): free distance through three turnpoints, flat and FAI
+triangles (each side ≥ 28 % of the perimeter P) closed under each contest's rule, and the largest triangle the pilot
+would close by flying back to their start. Distances on the FAI sphere; indicative, never an official score.
+
+| contest | triangle counts | points per km |
+|---|---|---|
+| XContest | gap < 20 % of P: P − gap | flat 1.2, FAI 1.4 |
+| XContest, closed | gap < 5 % of P: P − gap | flat 1.4, FAI 1.6 |
+| CFD (FFVL) | gap ≤ 3 km: P; gap ≤ 5 % of P: P − gap | flat 1.2, FAI 1.4 |
+
+Free distance counts 1 point per km everywhere.
+
+```
+GET /api/v1/map
+```
+
+```json
+{ "now": 1793440060,
+  "pilots": [{ "id": "42", "p": { "first": "Zoé", "last": "Martin", "brand": "Ozone", "wing": "Zeno 2", "type": "paraglider" },
+               "last": [1793440057, 45.95, 6.21, 2210, 12.0, 90, -1.1],
+               "flight": { "t0": 1793425000, "t1": 1793440057, "n": 3012, "km": 70.0, "fai": 76.9, "flat": 76.9 },
+               "tail": [[1793439760, 45.93, 6.20, 2150, 11.0, 80, 0.5], …] }] }
+```
+
+`flight`: start, end and fixes of the last flight; `km` its free distance, `fai` / `flat` the largest FAI / any triangle
+it would close (km, from 10 km), absent when the pilot has not flown. `tail`: the last 5 min, one fix per 15 s, for a
+pilot seen in the last 5 min. Same answer for everyone for 3 s. No device, app, ids or pilot secret.
+
+```
+GET /api/v1/map/42
+GET /api/v1/map/42?since=1793440057
+```
+
+`{ "id", "p", "now", "t0", "t1", "pts" }`: the whole last flight from `t0` (one fix per 2 s) and what followed it (the
+pilot walking after landing); with `since`, every fix after it. A new `t0` means a new flight: start again without
+`since`. `404 not-on-map` for a pilot who is not on the map.

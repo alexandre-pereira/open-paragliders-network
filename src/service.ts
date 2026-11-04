@@ -7,6 +7,7 @@
 import { createHash, randomBytes, scryptSync, timingSafeEqual } from 'node:crypto';
 import { statfsSync } from 'node:fs';
 import { Apps } from './apps.ts';
+import { DayMap } from './daymap.ts';
 import type { Config } from './config.ts';
 import { parseFix, wire, type NewFix } from './fix.ts';
 import { Live } from './live.ts';
@@ -18,8 +19,8 @@ export const DEVICE_RE = /^[A-Za-z0-9_.:@-]{6,80}$/;
 export const SECRET_MIN = 16;
 /** jeton d'un lien de suivi : tiré au hasard par l'appareil, 128 bits au moins */
 export const SHARE_RE = /^[A-Za-z0-9_-]{22,64}$/;
-/** ce qu'un lien de suivi remonte (h), et un point par SHARED_STEP s dans cette trace */
-const SHARED_H = 24, SHARED_STEP = 5;
+/** un point par SHARED_STEP s dans la trace d'un lien de suivi (tout l'historique), par MAP_STEP s dans celle d'un pilote de la carte */
+const SHARED_STEP = 5, MAP_STEP = 2;
 /** la trace montrée avant une alerte (s) */
 const SOS_TRAIL_S = 1800;
 /** bannissement d'une adresse IP (s) : elle change, et un opérateur mobile la partage entre beaucoup de monde */
@@ -67,6 +68,8 @@ export interface Credentials { device?: unknown; secret?: unknown }
 
 export class Service {
   readonly live: Live;
+  /** la carte publique du jour */
+  readonly dayMap: DayMap;
   /** heure (s), remplaçable dans les tests */
   clock: () => number = () => Date.now() / 1000;
   /** après un enregistrement : les abonnés en direct (ws.ts) peuvent partir plus tôt */
@@ -94,6 +97,7 @@ export class Service {
     for (const p of store.allPilots()) this.live.setPilot(p.pid, profileOf(p), p.pv, p.blocked);
     this.live.load(store.recent(Math.floor(this.now()) - cfg.liveWindowMin * 60));
     for (const { pid, ...a } of store.allAlerts()) { const p = this.live.pilots.get(pid); if (p) this.live.setStatus(pid, a, p.pv); }
+    this.dayMap = new DayMap(store, this.live, Math.floor(this.now()));
   }
 
   now() { return this.clock(); }
@@ -149,6 +153,7 @@ export class Service {
     const stored = good.length ? this.store.insertFixes(p.pid, good, Math.floor(nowS)) : [];
     dup += good.length - stored.length;
     this.live.add(p.pid, stored);
+    this.dayMap.note(p.pid, stored);
     if (Math.floor(nowS) - p.seen >= 60) { this.store.touch(p.pid, Math.floor(nowS)); p.seen = Math.floor(nowS); }
     if (stored.length) this.onFixes?.();
     return { ok: true, pilot: String(p.pid), stored: stored.length, dup, bad, last: (this.live.last(p.pid) ?? this.store.lastFix(p.pid))?.ts ?? null };
@@ -224,17 +229,17 @@ export class Service {
   }
 
   /**
-   * ce qu'un lien de suivi montre : le nom et la trace de ce seul pilote, des dernières SHARED_H heures au plus, sans
-   * identifiant ni logiciel ; `since` : les points d'après cette heure. Sans jeton connu, la même réponse pour tous
+   * ce qu'un lien de suivi montre : le nom et la trace de ce seul pilote, tout l'historique gardé (la page la découpe en
+   * vols), sans identifiant ni logiciel ; `since` : les points d'après cette heure. Sans jeton connu, la même réponse pour tous
    */
   shared(token: string, since: string | null) {
     const pid = SHARE_RE.test(token) ? this.store.sharePid(sha256(token)) : undefined;
     const p = pid === undefined ? undefined : this.live.pilots.get(pid);
     if (pid === undefined || !p || p.blocked) throw new HttpError(404, 'unknown-link');
-    const nowS = Math.floor(this.now()), oldest = nowS - Math.min(SHARED_H, this.cfg.retentionH) * 3600;
+    const nowS = Math.floor(this.now()), oldest = this.oldest();
     const after = since !== null && since !== '' && Number.isFinite(Number(since)) ? Number(since) + 1 : null;
-    const { first, last, brand, wing, type, status } = p.profile;
-    return { p: { first, last, brand, wing, type }, ...(status ? { status } : {}), now: nowS, pts: this.store.track(pid, Math.max(oldest, after ?? 0), nowS + 120, 100000, after === null ? SHARED_STEP : 0).map(wire) };
+    const { status, ...who } = publicProfile(p.profile);
+    return { p: who, ...(status ? { status } : {}), now: nowS, pts: (after === null ? this.store.trackThin(pid, oldest, nowS + 120, SHARED_STEP) : this.store.track(pid, after, nowS + 120)).map(wire) };
   }
 
   /** le pilote efface tout ce que le serveur a de lui */
@@ -244,7 +249,33 @@ export class Service {
     this.remove(p.pid);
   }
 
-  remove(pid: number) { this.store.deletePilot(pid); this.live.removePilot(pid); this.lastIp.delete(pid); }
+  remove(pid: number) { this.store.deletePilot(pid); this.live.removePilot(pid); this.dayMap.forget(pid); this.lastIp.delete(pid); }
+
+  /** sur la carte publique : un pilote connu, pas bloqué, qui ne l'a pas refusée */
+  onMap(pid: number) { const p = this.live.pilots.get(pid); return !!p && !p.blocked && p.profile.public !== false; }
+
+  /**
+   * la carte publique : chaque pilote du jour avec son dernier point, son dernier vol (début, fin, distances) et, en
+   * vol, sa traîne. Le profil sans logiciel, appareil ni identifiants des autres réseaux.
+   */
+  mapList() {
+    const nowS = Math.floor(this.now());
+    const pilots = this.dayMap.list(nowS, pid => this.onMap(pid)).map(x => ({ ...x, p: publicProfile(this.live.pilots.get(Number(x.id))!.profile) }));
+    return { now: nowS, pilots };
+  }
+
+  /**
+   * un pilote de la carte : son dernier vol entier (un point par MAP_STEP s), puis ce qui a suivi (posé, il marche) ;
+   * `since` : les points d'après cette heure. `t0` change quand un nouveau vol commence : la page repart de zéro
+   */
+  mapPilot(id: number, since: string | null) {
+    const nowS = Math.floor(this.now()), f = this.onMap(id) ? this.dayMap.flightOf(id, nowS) : null;
+    if (!f) throw new HttpError(404, 'not-on-map');
+    const t0 = f.flight?.t0 ?? f.last.ts;
+    const after = since !== null && since !== '' && Number.isFinite(Number(since)) ? Number(since) + 1 : null;
+    const pts = (after === null ? this.store.trackThin(id, t0, nowS + 120, MAP_STEP) : this.store.track(id, Math.max(t0, after), nowS + 120)).map(wire);
+    return { id: String(id), p: publicProfile(this.live.pilots.get(id)!.profile), now: nowS, t0, ...(f.flight ? { t1: f.flight.t1 } : {}), pts };
+  }
 
   block(pid: number, blocked: boolean, reason = '') {
     const p = this.store.pilotById(pid);
@@ -321,4 +352,7 @@ export class Service {
   }
 }
 
-export const profileOf = (p: PilotRow): Profile => ({ first: p.first, last: p.last, brand: p.brand, wing: p.wing, type: p.type, app: p.app, ...(p.ids ? { ids: p.ids } : {}) });
+/** ce que la carte publique et le lien de suivi montrent d'un pilote */
+export const publicProfile = ({ first, last, brand, wing, type, status }: Profile) => ({ first, last, brand, wing, type, ...(status ? { status } : {}) });
+
+export const profileOf = (p: PilotRow): Profile => ({ first: p.first, last: p.last, brand: p.brand, wing: p.wing, type: p.type, app: p.app, ...(p.ids ? { ids: p.ids } : {}), ...(p.public === false ? { public: false as const } : {}) });

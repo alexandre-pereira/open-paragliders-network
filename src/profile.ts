@@ -16,6 +16,8 @@ export interface Profile {
   app: string;
   /** identifiants du pilote sur les autres réseaux : { flarm: 'DD1234', puretrack: '…' } */
   ids?: Record<string, string>;
+  /** false : pas sur la carte publique du serveur (les logiciels et le lien de suivi le montrent toujours) ; absent : dessus */
+  public?: false;
   /** son état déclaré, absent en vol : gardé par le serveur à part du profil */
   status?: PilotStatus;
 }
@@ -61,6 +63,7 @@ export function mergeProfile(base: Profile, raw: unknown, app?: unknown): Profil
   };
   const ids = o.ids !== undefined ? cleanIds(o.ids) : base.ids;
   if (ids && Object.keys(ids).length) out.ids = ids;
+  if (typeof o.public === 'boolean' ? !o.public : base.public === false) out.public = false;
   // un nom complet seul (« Alex Pereira ») : le premier mot fait le prénom
   if (typeof o.name === 'string' && typeof o.first !== 'string' && typeof o.firstName !== 'string' && typeof o.last !== 'string' && typeof o.lastName !== 'string') {
     const name = clean(o.name, 100), sp = name.indexOf(' ');
@@ -70,7 +73,7 @@ export function mergeProfile(base: Profile, raw: unknown, app?: unknown): Profil
   return out;
 }
 
-export const sameProfile = (a: Profile, b: Profile) => a.first === b.first && a.last === b.last && a.brand === b.brand && a.wing === b.wing && a.type === b.type && a.app === b.app && idsText(a) === idsText(b);
+export const sameProfile = (a: Profile, b: Profile) => a.first === b.first && a.last === b.last && a.brand === b.brand && a.wing === b.wing && a.type === b.type && a.app === b.app && idsText(a) === idsText(b) && a.public === b.public;
 
 /** vehicle type LiveTrack24 → le nôtre */
 export function lt24Type(v: unknown): AircraftType {

@@ -24,6 +24,10 @@ export async function start(cfg: Config = loadConfig(), file?: string): Promise<
   const maint = setInterval(() => {
     try { svc.maintain(); } catch (e) { console.error('[entretien]', e); }
   }, 60000);
+  // les distances de la carte publique, en tâche de fond
+  const mapTick = setInterval(() => {
+    try { svc.dayMap.refresh(Math.floor(svc.now())); } catch (e) { console.error('[carte]', e); }
+  }, 2000);
   await new Promise<void>((ok, ko) => { server.once('error', ko); server.listen(cfg.port, cfg.host, ok); });
   const addr = server.address();
   const port = typeof addr === 'object' && addr ? addr.port : cfg.port;
@@ -32,6 +36,7 @@ export async function start(cfg: Config = loadConfig(), file?: string): Promise<
     if (closed) return;
     closed = true;
     clearInterval(maint);
+    clearInterval(mapTick);
     socket.close();
     await new Promise<void>(ok => { server.close(() => ok()); server.closeAllConnections(); });
     store.checkpoint();

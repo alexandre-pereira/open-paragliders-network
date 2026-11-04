@@ -338,3 +338,52 @@ test('back-office : mot de passe, traces, blocage', async () => {
   admin.ws.close();
   assert.equal((await fetch(base + '/admin/')).status, 200);
 });
+
+test('carte publique : vols du jour sans clé, dernier vol seulement, pilote caché absent ; lien de suivi : tout l’historique', async () => {
+  // à la longitude où il est midi au soleil : le jour solaire ne change pas pendant le test
+  const t = now(), lon = (((12 - (t % 86400) / 3600) * 15 + 540) % 360) - 180, lat = 45.9;
+  const leg = (t0: number, n: number, dLat: number, dLon: number, from: [number, number]) =>
+    Array.from({ length: n }, (_, i) => [t0 + i * 5, from[0] + dLat * (i + 1), from[1] + dLon * (i + 1), 1500, 10, 90, 0.5]);
+  // premier vol, 10 min posé, second vol (un aller de ~5,5 km vers l'est)
+  const v1 = leg(t - 1850, 120, 0.0004, 0, [lat, lon]);
+  const end1 = v1.at(-1)!;
+  const ground = Array.from({ length: 120 }, (_, i) => [end1[0] + 5 * (i + 1), end1[1], end1[2], 600, 0.2, 0, 0]);
+  const v2 = leg(ground.at(-1)![0] + 5, 120, 0, 0.0006, [end1[1], end1[2]]);
+  const me = { device: 'carte-publique-1', secret: SECRET, pilot: { first: 'Léa', last: 'Carte', wing: 'Rush 6' }, app: 'WS Nav 1.4' };
+  assert.equal((await post('/api/v1/points', { ...me, points: [...v1, ...ground, ...v2] })).status, 200);
+  await post('/api/v1/points', { device: 'carte-publique-2', secret: SECRET, pilot: { first: 'Caché', public: false }, points: leg(t - 600, 60, 0.0004, 0, [lat, lon]) });
+  const A = 'm'.repeat(24);
+  assert.equal((await post('/api/v1/share', { ...me, token: A })).status, 200);
+  run.svc.dayMap.refresh(now(), 5000);
+
+  const r = await fetch(base + '/api/v1/map');
+  assert.equal(r.status, 200, 'sans clé');
+  const d = await r.json(), lea = d.pilots.find((p: any) => p.p.first === 'Léa');
+  assert.ok(lea && !d.pilots.some((p: any) => p.p.first === 'Caché'));
+  assert.equal(lea.flight.t0, v2[0][0] - 5, 'le second vol part du dernier point au sol');
+  assert.ok(lea.flight.km > 4 && lea.flight.km < 7, String(lea.flight.km));
+  assert.ok(lea.tail?.length > 1, 'en vol : sa traîne');
+  assert.ok(!/carte-publique|WS Nav|ids|"app"/.test(JSON.stringify(d)), 'ni appareil, ni logiciel, ni identifiants');
+
+  const one = await (await fetch(`${base}/api/v1/map/${lea.id}`)).json();
+  assert.equal(one.t0, lea.flight.t0);
+  assert.ok(one.pts[0][0] >= one.t0 && one.pts.length > 50 && one.pts.length <= 125, String(one.pts.length));
+  assert.equal((await (await fetch(`${base}/api/v1/map/${lea.id}?since=${v2.at(-2)![0]}`)).json()).pts.length, 1);
+  const hidden = d.pilots.length ? (await (await get('/api/v1/live?trail=3600')).json()).pilots.find((p: any) => p.p?.first === 'Caché') : null;
+  assert.ok(hidden, 'caché de la carte, pas des logiciels');
+  assert.equal((await fetch(`${base}/api/v1/map/${hidden.id}`)).status, 404);
+  // un profil sans le champ le garde caché ; public: true le remet
+  await post('/api/v1/pilot', { device: 'carte-publique-2', secret: SECRET, pilot: { wing: 'Alpina 4' } });
+  assert.equal((await fetch(`${base}/api/v1/map/${hidden.id}`)).status, 404);
+  await post('/api/v1/pilot', { device: 'carte-publique-2', secret: SECRET, pilot: { public: true } });
+  run.svc.dayMap.refresh(now(), 5000);
+  assert.equal((await fetch(`${base}/api/v1/map/${hidden.id}`)).status, 200);
+
+  // le lien de suivi montre les deux vols, et ce qui les sépare
+  const sh = await (await fetch(`${base}/api/v1/shared/${A}`)).json();
+  assert.ok(sh.pts[0][0] <= v1[0][0] && sh.pts.at(-1)[0] === v2.at(-1)![0]);
+  // la page publique
+  const page = await fetch(base + '/');
+  assert.equal(page.status, 200);
+  assert.match(await page.text(), /<html/);
+});

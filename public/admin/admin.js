@@ -218,6 +218,7 @@ function renderDetail() {
   const row = (k, v) => { if (v !== undefined && v !== null && v !== '') dl.append(el('dt', { textContent: k }), el('dd', { textContent: String(v) })); };
   row('État', flagOf(p));
   row('Voile', wingOf(p)); row('Type', TYPE_FR[p.p?.type]); row('Logiciel', p.p?.app); row('N°', p.id); row('Appareil', m?.device);
+  row('Carte publique', p.p?.public === false ? 'non (choix du pilote)' : 'oui');
   row('Dernier point', `${hhmm(last[0])} (il y a ${ago(last[0])})`);
   row('Altitude', last[3] != null ? `${last[3]} m` : '—');
   row('Vitesse sol', last[4] != null ? `${Math.round(last[4] * 3.6)} km/h` : '—');

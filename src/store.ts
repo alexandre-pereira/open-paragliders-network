@@ -32,6 +32,7 @@ CREATE TABLE IF NOT EXISTS pilots (
   type TEXT NOT NULL DEFAULT 'paraglider',
   app TEXT NOT NULL DEFAULT '',
   ids TEXT NOT NULL DEFAULT '{}',
+  pub INTEGER NOT NULL DEFAULT 1,
   pv INTEGER NOT NULL DEFAULT 1,
   blocked INTEGER NOT NULL DEFAULT 0,
   created INTEGER NOT NULL,
@@ -107,6 +108,7 @@ const toPilot = (r: Row): PilotRow => ({
   pid: r.pid as number, device: r.device as string, secret: r.secret as string,
   first: r.first as string, last: r.last as string, brand: r.brand as string, wing: r.wing as string, type: r.type as AircraftType, app: r.app as string,
   ...(r.ids && r.ids !== '{}' ? { ids: JSON.parse(r.ids as string) as Record<string, string> } : {}),
+  ...(r.pub === 0 ? { public: false as const } : {}),
   pv: r.pv as number, blocked: !!r.blocked, created: r.created as number, seen: r.seen as number,
 });
 const toFix = (r: Row): Fix => ({
@@ -138,16 +140,17 @@ export class Store {
     this.db.exec('PRAGMA busy_timeout = 5000');
     this.db.exec('PRAGMA cache_size = -16000');
     this.db.exec(SCHEMA);
-    // base d'avant les identifiants, d'avant la marque
+    // base d'avant les identifiants, d'avant la marque, d'avant la carte publique
     const cols = (this.db.prepare('PRAGMA table_info(pilots)').all() as Row[]).map(c => c.name);
     if (!cols.includes('ids')) this.db.exec("ALTER TABLE pilots ADD COLUMN ids TEXT NOT NULL DEFAULT '{}'");
     if (!cols.includes('brand')) this.db.exec("ALTER TABLE pilots ADD COLUMN brand TEXT NOT NULL DEFAULT ''");
+    if (!cols.includes('pub')) this.db.exec('ALTER TABLE pilots ADD COLUMN pub INTEGER NOT NULL DEFAULT 1');
     const p = (k: string, sql: string) => { this.st[k] = this.db.prepare(sql); };
     p('byDevice', 'SELECT * FROM pilots WHERE device = ?');
     p('byId', 'SELECT * FROM pilots WHERE pid = ?');
-    p('newPilot', `INSERT INTO pilots (device, secret, first, last, brand, wing, type, app, ids, pv, blocked, created, seen)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1, 0, ?, ?) RETURNING *`);
-    p('profile', 'UPDATE pilots SET first = ?, last = ?, brand = ?, wing = ?, type = ?, app = ?, ids = ?, pv = pv + 1 WHERE pid = ? RETURNING pv');
+    p('newPilot', `INSERT INTO pilots (device, secret, first, last, brand, wing, type, app, ids, pub, pv, blocked, created, seen)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, 0, ?, ?) RETURNING *`);
+    p('profile', 'UPDATE pilots SET first = ?, last = ?, brand = ?, wing = ?, type = ?, app = ?, ids = ?, pub = ?, pv = pv + 1 WHERE pid = ? RETURNING pv');
     p('seen', 'UPDATE pilots SET seen = ? WHERE pid = ?');
     p('blocked', 'UPDATE pilots SET blocked = ? WHERE pid = ?');
     p('delPoints', 'DELETE FROM points WHERE pid = ?');
@@ -156,7 +159,10 @@ export class Store {
     p('insert', `INSERT OR IGNORE INTO points (pid, ts, lat, lon, alt, spd, crs, vz, rx) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING seq`);
     p('recent', 'SELECT * FROM points WHERE ts >= ? ORDER BY seq');
     p('track', 'SELECT * FROM points WHERE pid = ? AND ts >= ? AND ts <= ? ORDER BY ts LIMIT ?');
-    p('range', 'SELECT * FROM points WHERE ts >= ? AND ts <= ? ORDER BY pid, ts');
+    // min(ts) : SQLite donne les autres colonnes de la même ligne
+    p('thin', 'SELECT seq, pid, min(ts) AS ts, lat, lon, alt, spd, crs, vz, rx FROM points WHERE pid = ? AND ts >= ? AND ts <= ? GROUP BY ts / CAST(? AS INTEGER) ORDER BY ts');
+    p('lastIn', 'SELECT * FROM points WHERE pid = ? AND ts >= ? AND ts <= ? ORDER BY ts DESC LIMIT 1');
+    p('range','SELECT * FROM points WHERE ts >= ? AND ts <= ? ORDER BY pid, ts');
     p('stats', `SELECT pid, count(*) AS n, min(ts) AS t0, max(ts) AS t1 FROM points WHERE ts >= ? AND ts <= ? GROUP BY pid`);
     p('lastFix', 'SELECT * FROM points WHERE pid = ? ORDER BY ts DESC LIMIT 1');
     p('maxSeq', "SELECT coalesce((SELECT seq FROM sqlite_sequence WHERE name = 'points'), 0) AS s");
@@ -189,11 +195,11 @@ export class Store {
   allPilots(): PilotRow[] { return (this.db.prepare('SELECT * FROM pilots').all() as Row[]).map(toPilot); }
 
   createPilot(device: string, secret: string, p: Profile = EMPTY_PROFILE, now: number): PilotRow {
-    return toPilot(this.st.newPilot.get(device, secret, p.first, p.last, p.brand, p.wing, p.type, p.app, JSON.stringify(p.ids ?? {}), now, now) as Row);
+    return toPilot(this.st.newPilot.get(device, secret, p.first, p.last, p.brand, p.wing, p.type, p.app, JSON.stringify(p.ids ?? {}), p.public === false ? 0 : 1, now, now) as Row);
   }
   /** nouvelle version du profil */
   setProfile(pid: number, p: Profile): number {
-    return (this.st.profile.get(p.first, p.last, p.brand, p.wing, p.type, p.app, JSON.stringify(p.ids ?? {}), pid) as Row).pv as number;
+    return (this.st.profile.get(p.first, p.last, p.brand, p.wing, p.type, p.app, JSON.stringify(p.ids ?? {}), p.public === false ? 0 : 1, pid) as Row).pv as number;
   }
   touch(pid: number, now: number) { this.st.seen.run(now, pid); }
   setBlocked(pid: number, b: boolean) { this.st.blocked.run(b ? 1 : 0, pid); }
@@ -262,6 +268,16 @@ export class Store {
 
   track(pid: number, from: number, to: number, limit = 100000, step = 0): Fix[] {
     return thin((this.st.track.all(pid, from, to, limit) as Row[]).map(toFix), step);
+  }
+
+  /** la trace allégée par la base elle-même (un point par tranche de `step` s, le premier de chacune) et toujours le
+   *  dernier point : une longue période ne passe pas toute par la mémoire */
+  trackThin(pid: number, from: number, to: number, step: number): Fix[] {
+    if (step <= 1) return this.track(pid, from, to);
+    const out = (this.st.thin.all(pid, from, to, Math.floor(step)) as Row[]).map(toFix);
+    const last = this.st.lastIn.get(pid, from, to) as Row | undefined;
+    if (last && out.at(-1)?.ts !== last.ts) out.push(toFix(last));
+    return out;
   }
 
   /** toutes les traces d'une période, allégées (un point par `step` s), `maxPoints` au plus en tout */
