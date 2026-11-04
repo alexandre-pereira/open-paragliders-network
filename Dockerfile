@@ -1,5 +1,5 @@
 # Image du serveur : Node 24 (node:sqlite et TypeScript sans compilation), une seule dépendance (ws).
-FROM node:24-alpine
+FROM node:26-alpine
 ENV NODE_ENV=production DATA_DIR=/data PORT=8080
 WORKDIR /app
 COPY package.json package-lock.json ./
