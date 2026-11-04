@@ -36,7 +36,7 @@ const eq = (a: string, b: string) => timingSafeEqual(createHash('sha256').update
 
 /** les pages : scripts et feuilles d'ici et du CDN (avec leur empreinte), cartes et relief, rien d'autre */
 const CSP = "default-src 'none'; script-src 'self' https://unpkg.com; style-src 'self' 'unsafe-inline' https://unpkg.com; img-src 'self' data: blob: https:; font-src 'self' data:; "
-  + "connect-src 'self' wss: https://tiles.openfreemap.org https://s3.amazonaws.com; worker-src blob:; child-src blob:; base-uri 'none'; form-action 'self'; frame-ancestors 'none'";
+  + "connect-src 'self' wss: https://tiles.openfreemap.org https://s3.amazonaws.com; worker-src 'self' blob:; child-src blob:; base-uri 'none'; form-action 'self'; frame-ancestors 'none'";
 /** une connexion LiveTrack24 avec mot de passe coûte un scrypt, qui bloque le serveur le temps du calcul */
 const LT24_LOGIN_COST = 20;
 /** la carte publique est la même pour tous ses lecteurs : calculée et compressée au plus une fois par MAP_CACHE_MS */

@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="robots" content="noindex, nofollow">
   <title>Open Paragliders Network – back-office</title>
-  <link rel="stylesheet" href="https://unpkg.com/maplibre-gl@5.24.0/dist/maplibre-gl.css" integrity="sha384-uTttxo/aOKbdE5RlD/SPzSDoDmNvGlUYPjONi2MN/b7c9HPSvW07OIuyP7uL6jxK" crossorigin="anonymous">
+  <link rel="stylesheet" href="/vendor/maplibre-gl-6.14.0/maplibre-gl.css">
   <link rel="stylesheet" href="admin.css">
 </head>
 <body>
@@ -108,11 +108,7 @@
 
   <div id="detail" class="card detail" hidden></div>
 
-  <script src="https://unpkg.com/maplibre-gl@5.24.0/dist/maplibre-gl.js" integrity="sha384-5+cfbwT0iiub6VsQAdn6yz16nr6sDiQoHx6tm4O8OVYXHYOxcffFmCJBL0dgdvGp" crossorigin="anonymous"></script>
   <script src="https://unpkg.com/maplibre-contour@0.1.1/dist/index.min.js" integrity="sha384-f2gK0HoDkM64k6ZBnbv6ZuvMzDqPOwrfTaIU9iv2BN7CWHyyTQJkPC9AoRNuuV39" crossorigin="anonymous"></script>
-  <script src="/lib/basemap.js"></script>
-  <script src="/lib/air3d.js"></script>
-  <script src="admin.js"></script>
-  <script src="apps.js"></script>
+  <script type="module" src="/lib/maplibre.js" id="boot" data-load="/lib/basemap.js /lib/air3d.js /admin/admin.js /admin/apps.js"></script>
 </body>
 </html>

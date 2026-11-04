@@ -7,7 +7,7 @@
   <meta name="referrer" content="no-referrer">
   <meta name="description" content="Les pilotes de vol libre en direct : distance, triangles, traces du jour.">
   <title>Open Paragliders Network – en direct</title>
-  <link rel="stylesheet" href="https://unpkg.com/maplibre-gl@5.24.0/dist/maplibre-gl.css" integrity="sha384-uTttxo/aOKbdE5RlD/SPzSDoDmNvGlUYPjONi2MN/b7c9HPSvW07OIuyP7uL6jxK" crossorigin="anonymous">
+  <link rel="stylesheet" href="/vendor/maplibre-gl-6.14.0/maplibre-gl.css">
   <link rel="stylesheet" href="/live/live.css">
 </head>
 <body>
@@ -40,10 +40,7 @@
     </div>
   </div>
 
-  <script src="https://unpkg.com/maplibre-gl@5.24.0/dist/maplibre-gl.js" integrity="sha384-5+cfbwT0iiub6VsQAdn6yz16nr6sDiQoHx6tm4O8OVYXHYOxcffFmCJBL0dgdvGp" crossorigin="anonymous"></script>
   <script src="https://unpkg.com/maplibre-contour@0.1.1/dist/index.min.js" integrity="sha384-f2gK0HoDkM64k6ZBnbv6ZuvMzDqPOwrfTaIU9iv2BN7CWHyyTQJkPC9AoRNuuV39" crossorigin="anonymous"></script>
-  <script src="/lib/basemap.js"></script>
-  <script src="/lib/air3d.js"></script>
-  <script type="module" src="/live/live.js"></script>
+  <script type="module" src="/lib/maplibre.js" id="boot" data-load="/lib/basemap.js /lib/air3d.js /live/live.js!"></script>
 </body>
 </html>
