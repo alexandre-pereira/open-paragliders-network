@@ -179,7 +179,7 @@ GET /api/v1/live?bbox=5.5,45.2,7.0,46.4&since=123456
 | `bbox` | `west,south,east,north` (west > east crosses the antimeridian) |
 | `center` + `radius` | `lat,lon` and km (default 100 km) — instead of `bbox`; neither = the whole world |
 | `trail` | seconds of track sent with a pilot you do not have yet (default 600, max `windowS`) |
-| `maxAge` | pilots whose last fix is older are left out (s, default `windowS`) |
+| `maxAge` | pilots whose last fix is older are left out (s, default `windowS`), except pilots in `sos` |
 | `since` | your cursor: only what arrived since, plus the trail of pilots new to you |
 
 Answer — an **update** (same shape as the WebSocket `upd`):
@@ -387,8 +387,9 @@ once and even if the pilot sends no more fixes:
 { "id": "42", "p": { "first": "Zoé", …, "status": { "state": "sos", "t": 1793440000, "lat": 45.9, "lon": 6.1, "alt": 1420 } } }
 ```
 
-A later subscriber gets it only while the pilot's last fix is younger than `maxAge`. `GET /api/v1/sos` has no such limit.
-It needs no key and lists the pilots in `sos`, newest first, 200 at most:
+A later subscriber of that area gets it too, whatever `maxAge` and the age of the last fix: the snapshot carries every
+pilot in `sos` whose declared position (else last fix) is in the area, with their last fix, or with no `pts` once that fix
+has left the live window. `GET /api/v1/sos` needs no key and lists the pilots in `sos`, newest first, 200 at most:
 
 ```json
 { "now": 1793440060,

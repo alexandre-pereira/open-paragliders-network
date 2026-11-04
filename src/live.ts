@@ -210,11 +210,21 @@ export class Live {
       } else if (inside && fresh(last)) trailOf(p);
     }
 
-    // 2. les pilotes de la zone qu'il ne suit pas encore
+    // 2. les pilotes de la zone qu'il ne suit pas encore ; un pilote en SOS quel que soit l'âge de son dernier point
+    //    (posé, il n'envoie plus rien ; l'alerte dure autant que l'historique), à l'endroit qu'il a déclaré. Une reprise
+    //    sans état (HTTP) le redonne tant que son dernier point est trop vieux pour être déduit : quelques octets
     if (opts.snapshot) {
       for (const p of this.pilots.values()) {
         if (sub.known.has(p.pid) || out.has(p.pid) || !visible(p)) continue;
-        const last = p.track[p.track.length - 1];
+        const last = p.track[p.track.length - 1], s = p.profile.status;
+        if (s?.state === 'sos') {
+          const lat = s.lat ?? last?.lat, lon = s.lon ?? last?.lon;
+          if (lat === undefined || lon === undefined || !inBox(sub.bbox, lat, lon)) continue;
+          if (opts.infer && this.hadAt(p, since, sub, nowS)) { sub.known.set(p.pid, -1); continue; }
+          if (last) trailOf(p);
+          else { out.set(p.pid, { id: String(p.pid) }); sub.known.set(p.pid, -1); }
+          continue;
+        }
         if (!fresh(last) || !inBox(sub.bbox, last.lat, last.lon)) continue;
         if (opts.infer && this.hadAt(p, since, sub, nowS)) { sub.known.set(p.pid, -1); continue; }
         trailOf(p);

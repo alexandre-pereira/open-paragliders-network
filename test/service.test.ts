@@ -140,6 +140,39 @@ test('zone : un pilote qui en sort n’est plus suivi, il revient avec sa trace'
   assert.equal(back.pts?.length, 4);
 });
 
+test('SOS : un abonné arrivé longtemps après l’alerte la reçoit quand même, dans sa zone seulement', () => {
+  const { svc, tick, at } = make();
+  const A = svc.ingest({ device: 'pilote-sos1', secret: SECRET, pilot: { first: 'Paul' }, points: flight(at() - 300, 100) });
+  svc.setStatus({ device: 'pilote-sos1', secret: SECRET, state: 'sos', lat: 45.91, lon: 6.15, alt: 1200 });
+  const late = (area: string, mins: number) => {
+    const sub = newSub(svc, parseArea(area) as never, 600, null, false);
+    return svc.live.collect(sub, at(), { snapshot: true }).pilots.find(x => x.id === A.pilot);
+  };
+  // 2 h plus tard : son dernier point est sorti de la fenêtre du direct (1 h), l'alerte reste
+  tick(2 * 3600);
+  svc.maintain();
+  assert.equal(svc.live.last(Number(A.pilot)), undefined);
+  const got = late('5,45,7,47', 120);
+  assert.equal(got?.p?.status?.state, 'sos');
+  assert.equal(got?.p?.first, 'Paul');
+  assert.equal(got?.pts, undefined, 'pas de point du direct, seulement son état');
+  assert.equal(late('10,45,11,47', 120), undefined, 'hors de la zone : rien');
+
+  // 50 min après l'alerte, son dernier point est encore là mais trop vieux pour un abonné qui veut 10 min
+  const { svc: s2, tick: t2, at: at2 } = make();
+  const B = s2.ingest({ device: 'pilote-sos2', secret: SECRET, points: flight(at2() - 300, 100) });
+  s2.setStatus({ device: 'pilote-sos2', secret: SECRET, state: 'sos' });
+  t2(50 * 60);
+  const sub = newSub(s2, parseArea('5,45,7,47') as never, 600, 600, false);
+  const b = s2.live.collect(sub, at2(), { snapshot: true }).pilots.find(x => x.id === B.pilot);
+  assert.equal(b?.p?.status?.state, 'sos');
+  assert.equal(b?.pts?.length, 1, 'son dernier point, là où il est posé');
+
+  // il annule : plus rien pour un abonné nouveau
+  svc.setStatus({ device: 'pilote-sos1', secret: SECRET, state: 'none' });
+  assert.equal(late('5,45,7,47', 0), undefined);
+});
+
 test('curseur trop vieux : image complète', () => {
   const { svc, tick, at } = make({ LIVE_WINDOW_MIN: '5' });
   svc.ingest({ device: 'pilote-old1', secret: SECRET, points: [[at(), 45.9, 6.1]] });

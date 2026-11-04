@@ -260,8 +260,10 @@ the pilots around, they are often the first able to help.
 const s = cur.p?.status;   // { state: 'sos', t: 1793440000, lat: 45.9, lon: 6.1, alt: 1420 }
 ```
 
-An app that connects later gets `p.status` only while the pilot's last fix is younger than `maxAge`, 1 h by default. To
-show every SOS, however old, also poll `GET /api/v1/sos`: it needs no key and lists them with their position.
+An app that connects later gets it too, however old the pilot's last fix: a pilot in `sos` whose declared position (or,
+without one, last fix) is in your area comes with the snapshot, with only their last fix — or no `pts` at all when it is
+older than the live window. Handle a pilot with a profile and no fixes. `GET /api/v1/sos` lists every SOS of the world
+with its recent track, without a key.
 
 Four rules, because this one can hurt someone:
 
