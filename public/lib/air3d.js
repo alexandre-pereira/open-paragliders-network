@@ -65,8 +65,21 @@ class Air3d {
   /** une tige attend encore le relief */
   needsGround = false;
 
-  onAdd(map, gl) {
-    this.map = map; this.gl = gl;
+  onAdd(map) {
+    this.map = map;
+    this.lineN = 0; this.dotN = 0;
+    // noms au-dessus de la carte, sans prendre les clics
+    this.cv = document.createElement('canvas');
+    this.cv.style.cssText = 'position:absolute;inset:0;width:100%;height:100%;pointer-events:none;z-index:1';
+    map.getContainer().append(this.cv);
+    this.ctx = this.cv.getContext('2d');
+    // le relief arrivé, les tiges trouvent le sol
+    map.on('idle', () => { if (this.on && this.needsGround) { this.needsGround = false; this.build(); } });
+  }
+
+  /** programmes et tampons WebGL, faits à la première image : WebGL ne se touche que dans render(), où MapLibre relit
+   *  son état après coup (onAdd laissait un tampon lié que MapLibre ne savait pas) */
+  initGl(gl) {
     const prog = (vs, fs, attrs) => {
       const p = gl.createProgram();
       for (const [type, src] of [[gl.VERTEX_SHADER, vs], [gl.FRAGMENT_SHADER, fs]]) {
@@ -93,15 +106,7 @@ class Air3d {
     const l = this.line.a, d = this.dot.a;
     this.lineVao = vao(this.lineBuf, 12, [[l.a_a, 3, 0], [l.a_b, 3, 3], [l.a_side, 1, 6], [l.a_w, 1, 7], [l.a_color, 4, 8]]);
     this.dotVao = vao(this.dotBuf, 8, [[d.a_p, 3, 0], [d.a_size, 1, 3], [d.a_color, 4, 4]]);
-    this.lineN = 0; this.dotN = 0;
-
-    // noms au-dessus de la carte, sans prendre les clics
-    this.cv = document.createElement('canvas');
-    this.cv.style.cssText = 'position:absolute;inset:0;width:100%;height:100%;pointer-events:none;z-index:1';
-    map.getContainer().append(this.cv);
-    this.ctx = this.cv.getContext('2d');
-    // le relief arrivé, les tiges trouvent le sol
-    map.on('idle', () => { if (this.on && this.needsGround) { this.needsGround = false; this.build(); } });
+    gl.bindBuffer(gl.ARRAY_BUFFER, null);
   }
 
   /** items : { id, label, color, sel, old, pts } ; segColor(fix) : couleur d'un morceau de trace, sinon celle du pilote */
@@ -165,18 +170,26 @@ class Air3d {
       dots.push(last[0] - this.ox, last[1] - this.oy, last[2], p.sel ? 18 : 14, r, gr, b, p.old ? 0.6 : 1);
       this.pilots.push({ id: p.id, label: p.label, sel: p.sel, old: p.old, at: last, world });
     }
-    const gl = this.gl;
-    gl.bindBuffer(gl.ARRAY_BUFFER, this.lineBuf);
-    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(lines), gl.DYNAMIC_DRAW);
-    gl.bindBuffer(gl.ARRAY_BUFFER, this.dotBuf);
-    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(dots), gl.DYNAMIC_DRAW);
-    gl.bindBuffer(gl.ARRAY_BUFFER, null);
-    this.lineN = lines.length / 12; this.dotN = dots.length / 8;
+    // envoyés au processeur graphique dans render() seulement : MapLibre garde en mémoire l'état de WebGL (tampon lié…)
+    // et ne le relit qu'après le dessin d'une couche à part. Changé ici, entre deux images, l'image suivante dessinait ses
+    // couches avec un tampon qui n'était plus le bon : la carte disparaissait un instant après un déplacement
+    this.upload = { lines: new Float32Array(lines), dots: new Float32Array(dots) };
     this.map.triggerRepaint();
   }
 
   render(gl, args) {
     if (!this.on) return;
+    if (!this.line) this.initGl(gl);
+    if (this.upload) {
+      const { lines, dots } = this.upload;
+      this.upload = null;
+      gl.bindBuffer(gl.ARRAY_BUFFER, this.lineBuf);
+      gl.bufferData(gl.ARRAY_BUFFER, lines, gl.DYNAMIC_DRAW);
+      gl.bindBuffer(gl.ARRAY_BUFFER, this.dotBuf);
+      gl.bufferData(gl.ARRAY_BUFFER, dots, gl.DYNAMIC_DRAW);
+      gl.bindBuffer(gl.ARRAY_BUFFER, null);
+      this.lineN = lines.length / 12; this.dotN = dots.length / 8;
+    }
     const m = args.defaultProjectionData.mainMatrix;
     this.m = m;
     // les buffers sont relatifs à une origine : en float 32 les coordonnées absolues tremblent
