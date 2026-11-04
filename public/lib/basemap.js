@@ -1,5 +1,5 @@
-// Le fond de carte « Terrain » de WS Nav pour les cartes du serveur (back-office, carte publique, lien de suivi) :
-// teinte d'altitude, végétation, routes blanches, ombrage à quatre lumières, courbes de niveau, sommets, et le relief en
+// Le fond de carte « Naturel » de WS Nav pour les cartes du serveur (back-office, carte publique, lien de suivi) :
+// couleurs vues d'avion (forêts sombres, alpages, éboulis, neige, lacs profonds), ombrage à quatre lumières et du vrai soleil, courbes de niveau, sommets, et le relief en
 // 3D avec son ciel. OpenMapTiles (OpenFreeMap) et les tuiles d'altitude Mapzen, sans clé. Le relief sert une seule fois
 // ses tuiles à la teinte, à l'ombrage et aux courbes.
 'use strict';
@@ -7,8 +7,8 @@
 const OMT = 'https://tiles.openfreemap.org/planet';
 const DEM_URL = 'https://s3.amazonaws.com/elevation-tiles-prod/terrarium/{z}/{x}/{y}.png';
 const DEM_CREDIT = 'Relief <a href="https://github.com/tilezen/joerd/blob/master/docs/attribution.md">Mapzen Terrain Tiles</a> (AWS Open Data)';
-/** relief exagéré comme dans l'appli */
-const EXAGGERATION = 1.5;
+/** relief à sa vraie hauteur (demande du 04/11 : plus d’exagération) ; les pilotes en 3D suivent la même échelle */
+const EXAGGERATION = 1;
 /** inclinaison de la vue 3D, et la plus forte permise */
 const PITCH_3D = 62, MAX_PITCH = 75;
 
@@ -21,6 +21,47 @@ const contourTiles = demSource.contourProtocolUrl({
   thresholds: { 10: [200, 1000], 11: [100, 500], 12: [100, 500], 13: [50, 250], 14: [20, 100] },
 });
 
+// ombrage à quatre lumières basses liées à l'écran et ombrage du vrai soleil : ceux du fond « Naturel » de WS Nav
+const RELIEF = {
+  altitude: [18, 28, 18, 34],
+  highlight: ['rgba(255,243,215,0.62)', 'rgba(255,243,215,0.88)', 'rgba(255,243,215,0.62)', 'rgba(255,243,215,0.30)'],
+  shadow: ['rgba(14,22,36,0.80)', 'rgba(14,22,36,1)', 'rgba(14,22,36,0.80)', 'rgba(14,22,36,0.34)'],
+};
+const SUN_SHADOW = 'rgba(20,35,80,0.42)', SUN_LIGHT = 'rgba(255,214,140,0.28)';
+
+/** position du soleil (algorithme simplifié de l'Astronomical Almanac, ±0,01°), en degrés */
+function sunPosition(date, lat, lon) {
+  const D2R = Math.PI / 180;
+  const n = date.getTime() / 86400000 + 2440587.5 - 2451545.0;
+  const L = (280.46 + 0.9856474 * n) % 360;
+  const g = ((357.528 + 0.9856003 * n) % 360) * D2R;
+  const lam = (L + 1.915 * Math.sin(g) + 0.02 * Math.sin(2 * g)) * D2R;
+  const eps = (23.439 - 0.0000004 * n) * D2R;
+  const ra = Math.atan2(Math.cos(eps) * Math.sin(lam), Math.cos(lam));
+  const dec = Math.asin(Math.sin(eps) * Math.sin(lam));
+  const gmst = (((18.697374558 + 24.06570982441908 * n) % 24) + 24) % 24;
+  const ha = (gmst * 15 + lon) * D2R - ra;
+  const la = lat * D2R;
+  const el = Math.asin(Math.sin(la) * Math.sin(dec) + Math.cos(la) * Math.cos(dec) * Math.cos(ha));
+  const az = Math.atan2(-Math.sin(ha), Math.tan(dec) * Math.cos(la) - Math.sin(la) * Math.cos(ha));
+  return { azimuth: ((az / D2R) % 360 + 360) % 360, elevation: el / D2R };
+}
+
+/** l'ombre du vrai soleil sur la carte, comme dans l'appli : le soleil d'en ce moment au centre de la vue, suivi à
+ *  chaque minute et quand la carte s'arrête ailleurs ; la nuit, plus d'ombre du soleil */
+function followSun(map) {
+  const place = () => {
+    if (!map.getLayer('sun')) return;
+    const c = map.getCenter(), s = sunPosition(new Date(), c.lat, c.lng);
+    map.setPaintProperty('sun', 'hillshade-illumination-direction', s.azimuth);
+    map.setPaintProperty('sun', 'hillshade-illumination-altitude', Math.max(3, s.elevation));
+    map.setPaintProperty('sun', 'hillshade-exaggeration', s.elevation < 0 ? 0 : 0.75);
+  };
+  if (map.loaded()) place(); else map.once('load', place);
+  map.on('moveend', place);
+  setInterval(place, 60000);
+}
+
 function baseStyle() {
   const z = (...stops) => ['interpolate', ['exponential', 1.5], ['zoom'], ...stops];
   const cls = (...c) => ['match', ['get', 'class'], c, true, false];
@@ -29,7 +70,8 @@ function baseStyle() {
   const round = { 'line-cap': 'round', 'line-join': 'round' };
   const name = ['coalesce', ['get', 'name:fr'], ['get', 'name']];
   const halo = 'rgba(255,255,255,0.9)', bold = ['Noto Sans Bold'], regular = ['Noto Sans Regular'];
-  const contourColor = { minor: 'rgba(110,80,40,0.35)', major: 'rgba(110,80,40,0.65)' };
+  const contourColor = { minor: 'rgba(60,50,35,0.22)', major: 'rgba(60,50,35,0.45)' };
+  const wood = cls('wood'), soft = z(9, 2, 12, 5, 14, 8, 16, 12);
   return {
     version: 8,
     glyphs: 'https://tiles.openfreemap.org/fonts/{fontstack}/{range}.pbf',
@@ -45,43 +87,64 @@ function baseStyle() {
       'atmosphere-blend': ['interpolate', ['linear'], ['zoom'], 0, 1, 10, 1, 13, 0],
     },
     layers: [
-      { id: 'bg', type: 'background', paint: { 'background-color': '#E4E3CF' } },
-      // vallées vertes, pentes beiges, roche grise, sommets blancs
+      { id: 'bg', type: 'background', paint: { 'background-color': '#93A566' } },
+      // prés et champs en bas, alpages olive, pierre grise nue au-dessus de 2300 m, puis la neige
       { id: 'hypso', type: 'color-relief', source: 'dem', paint: {
-        'color-relief-color': ['interpolate', ['linear'], ['elevation'], 0, '#A9C788', 700, '#BED39A', 1300, '#D8D6AC', 1900, '#E0C9A4', 2400, '#CDBCA9', 2900, '#E8E5E1', 3300, '#FFFFFF'],
+        'color-relief-color': ['interpolate', ['linear'], ['elevation'], 0, '#A2AD70', 500, '#93A566', 1000, '#86995B', 1500, '#8C9A5F', 1900, '#9D9B6D',
+          2150, '#A29C88', 2400, '#A3A19C', 2900, '#B9B8B6', 3200, '#D8D9DA', 3500, '#F1F3F5'],
         'color-relief-opacity': 1,
       } },
-      omt('grass', 'fill', 'landcover', { filter: cls('grass', 'farmland'), paint: { 'fill-color': '#C9D7A6', 'fill-opacity': 0.35 } }),
-      omt('wood', 'fill', 'landcover', { filter: ['==', ['get', 'class'], 'wood'], paint: { 'fill-color': '#93B072', 'fill-opacity': 0.62 } }),
-      omt('urban', 'fill', 'landuse', { filter: cls('residential', 'commercial', 'industrial'), paint: { 'fill-color': '#D6D2C8', 'fill-opacity': 0.6 } }),
-      omt('glacier', 'fill', 'landcover', { filter: ['==', ['get', 'subclass'], 'glacier'], paint: { 'fill-color': '#FFFFFF', 'fill-opacity': 0.75 } }),
+      omt('farmland', 'fill', 'landcover', { filter: cls('farmland'), paint: { 'fill-color': '#B9B678', 'fill-opacity': 0.5 } }),
+      omt('grass', 'fill', 'landcover', { filter: cls('grass'), paint: { 'fill-color': '#8DA35C', 'fill-opacity': 0.4 } }),
+      omt('wetland', 'fill', 'landcover', { filter: cls('wetland'), paint: { 'fill-color': '#6F8B60', 'fill-opacity': 0.45 } }),
+      omt('sand', 'fill', 'landcover', { filter: cls('sand'), paint: { 'fill-color': '#D8CCA6', 'fill-opacity': 0.65 } }),
+      omt('rock', 'fill', 'landcover', { filter: cls('rock'), paint: { 'fill-color': '#AEADA9', 'fill-opacity': 0.9 } }),
+      // forêt sombre au bord adouci : une ligne floue de même couleur sur le contour, comme une lisière vue d'avion
+      omt('wood', 'fill', 'landcover', { filter: wood, paint: { 'fill-color': '#46653A', 'fill-opacity': 0.66 } }),
+      omt('wood-soft', 'line', 'landcover', { filter: wood, layout: { 'line-join': 'round' }, paint: { 'line-color': '#46653A', 'line-opacity': 0.4, 'line-width': soft, 'line-blur': soft } }),
+      // villages en beige clair, l'industrie, les voies ferrées et les carrières en gris à part
+      omt('urban', 'fill', 'landuse', { filter: cls('residential', 'commercial', 'retail'), paint: { 'fill-color': '#E0C9A0', 'fill-opacity': 0.88 } }),
+      omt('industry', 'fill', 'landuse', { filter: cls('industrial', 'railway', 'garages', 'quarry'), paint: { 'fill-color': '#C6C1B4', 'fill-opacity': 0.92 } }),
+      omt('glacier', 'fill', 'landcover', { filter: ['==', ['get', 'subclass'], 'glacier'], paint: { 'fill-color': '#EEF2F6', 'fill-opacity': 0.92 } }),
       // plusieurs lumières liées à l'écran : le relief ne paraît jamais inversé, quelle que soit l'orientation
       { id: 'relief', type: 'hillshade', source: 'dem', paint: {
         'hillshade-method': 'multidirectional',
         'hillshade-illumination-anchor': 'viewport',
         'hillshade-illumination-direction': [270, 315, 0, 225],
-        'hillshade-illumination-altitude': [24, 34, 24, 40],
-        'hillshade-highlight-color': ['rgba(255,255,255,0.55)', 'rgba(255,255,255,0.80)', 'rgba(255,255,255,0.55)', 'rgba(255,255,255,0.25)'],
-        'hillshade-shadow-color': ['rgba(38,32,24,0.68)', 'rgba(38,32,24,0.92)', 'rgba(38,32,24,0.68)', 'rgba(38,32,24,0.28)'],
+        'hillshade-illumination-altitude': RELIEF.altitude,
+        'hillshade-highlight-color': RELIEF.highlight,
+        'hillshade-shadow-color': RELIEF.shadow,
         'hillshade-exaggeration': 1,
       } },
-      omt('water', 'fill', 'water', { paint: { 'fill-color': '#A3C2DA' } }),
-      omt('waterway', 'line', 'waterway', { paint: { 'line-color': '#7FA7C9', 'line-width': ['interpolate', ['linear'], ['zoom'], 9, 0.6, 14, 2] } }),
+      // le vrai soleil : l'ombre là où les pentes sont à l'ombre en ce moment (followSun)
+      { id: 'sun', type: 'hillshade', source: 'dem', paint: {
+        'hillshade-method': 'basic',
+        'hillshade-illumination-anchor': 'map',
+        'hillshade-illumination-direction': 200,
+        'hillshade-illumination-altitude': 30,
+        'hillshade-shadow-color': SUN_SHADOW,
+        'hillshade-highlight-color': SUN_LIGHT,
+        'hillshade-accent-color': 'rgba(0,0,0,0)',
+        'hillshade-exaggeration': 0.75,
+      } },
+      omt('water', 'fill', 'water', { paint: { 'fill-color': '#41708C' } }),
+      omt('water-edge', 'line', 'water', { paint: { 'line-color': 'rgba(40,70,90,0.6)', 'line-width': 0.7 } }),
+      omt('waterway', 'line', 'waterway', { paint: { 'line-color': '#57829E', 'line-width': ['interpolate', ['linear'], ['zoom'], 9, 0.6, 14, 2] } }),
       omt('boundary', 'line', 'boundary', { filter: ['all', ['==', ['get', 'admin_level'], 2], ['!=', ['get', 'maritime'], 1]], paint: { 'line-color': '#8A7E9C', 'line-width': 1.2, 'line-dasharray': [3, 2] } }),
-      omt('buildings', 'fill', 'building', { minzoom: 13, paint: { 'fill-color': '#C2BAAE', 'fill-opacity': 0.8 } }),
-      omt('paths', 'line', 'transportation', { minzoom: 13, filter: cls('track', 'path'), paint: { 'line-color': '#7A6A55', 'line-width': 0.8, 'line-dasharray': [2, 1.5] } }),
-      omt('rail', 'line', 'transportation', { minzoom: 10, filter: cls('rail'), paint: { 'line-color': '#6E6E6E', 'line-width': 1, 'line-dasharray': [4, 2] } }),
-      omt('roads-minor', 'line', 'transportation', { minzoom: 12, filter: minor, layout: round, paint: { 'line-color': '#FFFFFF', 'line-width': z(12, 0.8, 16, 4) } }),
-      omt('roads-mid-case', 'line', 'transportation', { filter: mid, layout: round, paint: { 'line-color': '#6F6A62', 'line-width': z(7, 0.5, 10, 1.3, 14, 4.5, 16, 8) } }),
-      omt('roads-major-case', 'line', 'transportation', { filter: major, layout: round, paint: { 'line-color': '#6F6A62', 'line-width': z(6, 0.8, 10, 2, 14, 6.5, 16, 11) } }),
-      omt('roads-mid', 'line', 'transportation', { minzoom: 9.5, filter: mid, layout: round, paint: { 'line-color': '#FFFFFF', 'line-width': z(10, 0.4, 14, 3, 16, 6) } }),
-      omt('roads-major', 'line', 'transportation', { minzoom: 9.5, filter: major, layout: round, paint: { 'line-color': '#F5E2B8', 'line-width': z(10, 0.8, 14, 4.5, 16, 8.5) } }),
+      omt('buildings', 'fill', 'building', { minzoom: 13, paint: { 'fill-color': '#8C7566', 'fill-opacity': 0.95, 'fill-outline-color': '#5A483C' } }),
+      omt('paths', 'line', 'transportation', { minzoom: 13, filter: cls('track', 'path'), paint: { 'line-color': '#6F6350', 'line-width': 0.8, 'line-dasharray': [2, 1.5] } }),
+      omt('rail', 'line', 'transportation', { minzoom: 10, filter: cls('rail'), paint: { 'line-color': '#5F5B55', 'line-width': 1, 'line-dasharray': [4, 2] } }),
+      omt('roads-minor', 'line', 'transportation', { minzoom: 12, filter: minor, layout: round, paint: { 'line-color': '#D6D1C6', 'line-width': z(12, 0.8, 16, 4) } }),
+      omt('roads-mid-case', 'line', 'transportation', { filter: mid, layout: round, paint: { 'line-color': '#7D786E', 'line-opacity': 0.55, 'line-width': z(7, 0.5, 10, 1.3, 14, 4.5, 16, 8) } }),
+      omt('roads-major-case', 'line', 'transportation', { filter: major, layout: round, paint: { 'line-color': '#7D786E', 'line-opacity': 0.55, 'line-width': z(6, 0.8, 10, 2, 14, 6.5, 16, 11) } }),
+      omt('roads-mid', 'line', 'transportation', { minzoom: 9.5, filter: mid, layout: round, paint: { 'line-color': '#E2DDD2', 'line-width': z(10, 0.4, 14, 3, 16, 6) } }),
+      omt('roads-major', 'line', 'transportation', { minzoom: 9.5, filter: major, layout: round, paint: { 'line-color': '#ECE6D8', 'line-width': z(10, 0.8, 14, 4.5, 16, 8.5) } }),
       omt('lifts', 'line', 'transportation', { filter: cls('aerialway', 'cable_car', 'gondola'), paint: { 'line-color': '#D11F2E', 'line-width': 1.6, 'line-dasharray': [2, 1] } }),
-      { id: 'contour-minor', type: 'line', source: 'contours', 'source-layer': 'contours', filter: ['==', ['get', 'level'], 0], paint: { 'line-color': contourColor.minor, 'line-width': 0.7 } },
-      { id: 'contour-major', type: 'line', source: 'contours', 'source-layer': 'contours', filter: ['>', ['get', 'level'], 0], paint: { 'line-color': contourColor.major, 'line-width': 1.3 } },
+      { id: 'contour-minor', type: 'line', source: 'contours', 'source-layer': 'contours', filter: ['==', ['get', 'level'], 0], paint: { 'line-color': contourColor.minor, 'line-width': 0.6 } },
+      { id: 'contour-major', type: 'line', source: 'contours', 'source-layer': 'contours', filter: ['>', ['get', 'level'], 0], paint: { 'line-color': contourColor.major, 'line-width': 1.1 } },
       { id: 'contour-label', type: 'symbol', source: 'contours', 'source-layer': 'contours', filter: ['>', ['get', 'level'], 0],
         layout: { 'symbol-placement': 'line', 'text-size': 10, 'text-field': ['concat', ['number-format', ['get', 'ele'], {}], ' m'], 'text-font': regular },
-        paint: { 'text-color': '#6E5028', 'text-halo-color': 'rgba(255,255,255,0.85)', 'text-halo-width': 1.2 } },
+        paint: { 'text-color': '#3F3526', 'text-halo-color': 'rgba(255,255,255,0.85)', 'text-halo-width': 1.2 } },
       // peu de villages : les sommets restent au-dessus
       omt('places', 'symbol', 'place', {
         filter: ['step', ['zoom'], ['==', ['get', 'class'], 'city'], 9, cls('city', 'town'), 12.5, cls('city', 'town', 'village')],
@@ -89,11 +152,11 @@ function baseStyle() {
           'text-field': name, 'text-font': ['match', ['get', 'class'], 'village', ['literal', regular], ['literal', bold]],
           'text-size': ['match', ['get', 'class'], 'city', 14, 'town', 12, 10.5], 'text-padding': 12, 'symbol-sort-key': ['coalesce', ['get', 'rank'], 99],
         },
-        paint: { 'text-color': '#2E2E2E', 'text-halo-color': halo, 'text-halo-width': 1.4 },
+        paint: { 'text-color': '#262626', 'text-halo-color': halo, 'text-halo-width': 1.4 },
       }),
       omt('water-names', 'symbol', 'water_name', {
         layout: { 'text-field': name, 'text-font': ['literal', ['Noto Sans Italic']], 'text-size': 12 },
-        paint: { 'text-color': '#3D6A8F', 'text-halo-color': halo, 'text-halo-width': 1.2 },
+        paint: { 'text-color': '#2E5670', 'text-halo-color': halo, 'text-halo-width': 1.2 },
       }),
       omt('peaks', 'symbol', 'mountain_peak', {
         minzoom: 9, filter: ['has', 'ele'],
