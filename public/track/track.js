@@ -95,7 +95,12 @@ function draw() {
   const on3d = air3d.on;
   map.setPaintProperty('track', 'line-opacity', on3d ? 0.3 : 1);
   map.setPaintProperty('track-case', 'line-opacity', on3d ? 0 : 0.7);
-  air3d.setData(f ? [{ id: 'p', color: 'hsl(224 100% 50%)', sel: true, old: age > FRESH_S, label: who ?? '', pts: sel === flights.length - 1 ? pts.slice(f.i0) : pts.slice(f.i0, f.i1 + 1) }] : [], true, null);
+  // en 3D, le pilote est toujours là où il est : au sol sans vol gardé, ou un vol passé choisi, sa position du moment
+  // en plus (avant, rien du tout en 3D tant qu'il n'avait pas volé)
+  const items = [], current = f && sel === flights.length - 1;
+  if (f) items.push({ id: 'p', color: 'hsl(224 100% 50%)', sel: true, old: !current || age > FRESH_S, label: current ? who ?? '' : '', pts: current ? pts.slice(f.i0) : pts.slice(f.i0, f.i1 + 1) });
+  if (!current) items.push({ id: 'now', color: 'hsl(224 100% 50%)', sel: true, old: age > FRESH_S, label: who ?? '', pts: pts.slice(tailFrom) });
+  air3d.setData(items, true, null);
   marker.setLngLat([last[2], last[1]]);
   if (on3d) marker.remove(); else marker.addTo(map);
   if (!placed) {
