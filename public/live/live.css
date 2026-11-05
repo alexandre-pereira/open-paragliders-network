@@ -62,6 +62,7 @@ label > select { margin-top: 2px; color: var(--fg); }
 #detail dt.total, #detail dd.total { padding-top: 4px; border-top: 1px solid var(--line); color: var(--fg); font-weight: 700; }
 #detail .togo b { display: block; margin-bottom: 2px; }
 #detail .close { position: absolute; right: 10px; top: 10px; }
+#detail .back { display: none; }
 #detail .seg { display: flex; gap: 0; margin: 4px 0; }
 #detail .seg button { flex: 1; border-radius: 0; }
 #detail .seg button:first-child { border-radius: 6px 0 0 6px; }
@@ -85,6 +86,11 @@ label > select { margin-top: 2px; color: var(--fg); }
   #side.folded { height: auto; }
   #side.folded .tools, #side.folded #list { display: none; }
   #map { height: auto; }
-  #detail { left: 8px; right: 50px; top: 8px; width: auto; max-height: 50vh; }
+  /* un pilote choisi : sa fiche à la place de la liste, « ‹ Pilotes » pour y revenir */
+  body.picked #side { display: none; }
+  #detail { position: static; order: -1; width: 100%; height: 42vh; max-height: none; flex: none; border: 0; border-top: 1px solid var(--line); border-radius: 0; box-shadow: none; padding: 0 14px 14px; }
+  #detail .close { display: none; }
+  #detail .back { display: block; position: sticky; top: 0; z-index: 1; width: calc(100% + 28px); margin: 0 -14px 8px; padding: 10px 14px; border: 0; border-bottom: 1px solid var(--line); border-radius: 0; background: var(--panel); color: var(--accent); font-weight: 600; text-align: left; }
+  #detail h2 { margin-right: 0; }
 }
 @media (min-width: 701px) { #fold { display: none; } }

@@ -16,7 +16,7 @@ const T = fr ? {
   alt: 'Altitude', vz: 'Vario', spd: 'Vitesse', dur: 'Vol', free: 'Distance libre', closedFai: 'Triangle FAI', closedFlat: 'Triangle plat', total: 'Points {r}',
   openFaiIf: 'FAI s’il boucle', openFlatIf: 'Plat s’il boucle', openFai: 'Triangle FAI', openFlat: 'Triangle plat', target: 'Triangle visé',
   close: 'Pour boucler le {P} :', togo: '×{k} ({g}) : encore {d}', closed: '×{k} ({g}) : bouclé', pts: 'pts', noTri: 'Pas encore de triangle.', loading: 'Trace en cours de chargement…',
-  center: 'Centrer', follow: 'Suivre', unfollow: 'Ne plus suivre', pilot: 'Pilote {n}', fold: 'Replier la liste', unfold: 'Déplier la liste',
+  center: 'Centrer', follow: 'Suivre', unfollow: 'Ne plus suivre', pilot: 'Pilote {n}', fold: 'Replier la liste', unfold: 'Déplier la liste', back: 'Pilotes', backTip: 'Retour à la liste des pilotes',
   conn: 'En direct', down: 'Réseau coupé, nouvel essai…', about: 'À propos de cette carte', group: '{n} pilotes : zoomer',
 } : {
   title: 'Live', tailOn: 'Show their track on the map', tailFull: '{n} tracks at most: untick another pilot', search: 'Search a pilot, a wing…', sort: 'Sort by', rule: 'Distance rules',
@@ -28,7 +28,7 @@ const T = fr ? {
   alt: 'Altitude', vz: 'Vario', spd: 'Speed', dur: 'Flight', free: 'Free distance', closedFai: 'FAI triangle', closedFlat: 'Flat triangle', total: '{r} points',
   openFaiIf: 'FAI if closed', openFlatIf: 'Flat if closed', openFai: 'FAI triangle', openFlat: 'Flat triangle', target: 'Target triangle',
   close: 'To close the {P}:', togo: '×{k} ({g}): {d} to go', closed: '×{k} ({g}): closed', pts: 'pts', noTri: 'No triangle yet.', loading: 'Loading the track…',
-  center: 'Center', follow: 'Follow', unfollow: 'Stop following', pilot: 'Pilot {n}', fold: 'Fold the list', unfold: 'Unfold the list',
+  center: 'Center', follow: 'Follow', unfollow: 'Stop following', pilot: 'Pilot {n}', fold: 'Fold the list', unfold: 'Unfold the list', back: 'Pilots', backTip: 'Back to the pilot list',
   conn: 'Live', down: 'Network down, trying again…', about: 'About this map', group: '{n} pilots: zoom in',
 };
 
@@ -205,7 +205,7 @@ async function loadList() {
     await mapReady;
     if (state.firstFit && d.pilots.length) { state.firstFit = false; fitTo(d.pilots.map(p => [p.last[2], p.last[1]]), 11); }
     const want = new URLSearchParams(location.search).get('p');
-    if (want && !state.sel && state.pilots.has(want)) select(want, true);
+    if (want && !state.sel && state.pilots.has(want)) select(want, true, false);
     redraw();
   } catch { setConn(false); }
   setTimeout(loadList, LIST_EVERY);
@@ -269,7 +269,8 @@ function sorted(list) {
   return list.sort((a, b) => (val(a) - val(b)) || nameOf(a).localeCompare(nameOf(b)));
 }
 
-function redraw() { renderList(); drawPilots(); if (state.sel) renderDetail(); }
+// la fiche aussi quand plus personne n'est choisi : c'est renderDetail qui la cache
+function redraw() { renderList(); drawPilots(); renderDetail(); }
 
 /** les pilotes trop serrés pour être lus, groupés par cases de la carte au zoom entier (stables quand on la déplace) */
 function clusterize(list) {
@@ -386,12 +387,14 @@ function tailBox(id, full) {
 
 function renderDetail() {
   const s = state.sel, box = $('detail');
-  if (!s) { box.hidden = true; return; }
+  if (!s) { showDetail(false); return; }
   const p = state.pilots.get(s.id) ?? { id: s.id, p: s.p, last: s.pts?.at(-1) };
   const last = s.pts?.at(-1) ?? p.last;
-  if (!last) { box.hidden = true; return; }
+  if (!last) { showDetail(false); return; }
   const btn = (label, fn, cls = '') => { const b = el('button', { type: 'button', textContent: label, className: cls }); b.addEventListener('click', fn); return b; };
-  const st = p.p?.status, kids = [btn('✕', unselect, 'icon close'), el('h2', { textContent: nameOf(p) }), el('div', { className: 'muted', textContent: wingOf(p) })];
+  const back = btn(`‹ ${T.back}`, unselect, 'back');
+  back.title = T.backTip;
+  const st = p.p?.status, kids = [btn('✕', unselect, 'icon close'), back, el('h2', { textContent: nameOf(p) }), el('div', { className: 'muted', textContent: wingOf(p) })];
   if (st) kids.push(el('div', { className: `state ${st.state}`, textContent: T[st.state].replace('{h}', hhmm(st.t)) }));
   else {
     const age = nowS() - last[0], up = s.t1 && last[0] - s.t1 > FLYING_S;
@@ -435,19 +438,33 @@ function renderDetail() {
   kids.push(el('div', { className: 'actions' },
     btn(T.center, () => fitTo((s.pts ?? [last]).map(f => [f[2], f[1]]))),
     btn(state.follow ? T.unfollow : T.follow, () => { state.follow = !state.follow; if (state.follow) map.easeTo({ center: [last[2], last[1]], duration: 600 }); renderDetail(); }, state.follow ? 'on' : '')));
+  // le défilement de la fiche reste où il était à chaque rafraîchissement (toutes les 5 s)
+  const top = box.scrollTop;
   box.replaceChildren(...kids);
-  box.hidden = false;
+  showDetail(true);
+  box.scrollTop = top;
 }
 
-function select(id, fit) {
+/** sur téléphone la fiche prend la place de la liste en bas de l'écran (CSS body.picked) : la carte change de taille */
+function showDetail(on) {
+  $('detail').hidden = !on;
+  if (document.body.classList.contains('picked') === on) return;
+  document.body.classList.toggle('picked', on);
+  setTimeout(() => map.resize(), 50);
+}
+
+/** push : la fiche ouverte prend une entrée de l'historique, le retour du navigateur ou du téléphone la ferme */
+function select(id, fit, push = true) {
   id = String(id);
   if (state.sel?.id === id) { if (fit) fitSel(); return; }
+  const had = !!state.sel;
   if (state.sel) clearTimeout(state.sel.timer);
   state.sel = { id, pts: null, t0: null, t1: null, score: null, timer: 0, fit };
   state.follow = false;
   const u = new URL(location.href);
   u.searchParams.set('p', id);
-  history.replaceState(null, '', u);
+  if (push && !had && !history.state?.opnSel) history.pushState({ opnSel: true }, '', u);
+  else history.replaceState(history.state, '', u);
   const p = state.pilots.get(id);
   if (fit && p) map.easeTo({ center: [p.last[2], p.last[1]], duration: 600 });
   redraw();
@@ -455,16 +472,27 @@ function select(id, fit) {
 }
 function fitSel() { const s = state.sel; if (s?.pts?.length) fitTo(s.pts.map(f => [f[2], f[1]])); }
 
+/** ✕ ou « ‹ Pilotes » : revient en arrière dans l'historique si la fiche y a pris une entrée (popstate la ferme) */
 function unselect() {
-  if (state.sel) clearTimeout(state.sel.timer);
-  state.sel = null; state.follow = false;
+  if (history.state?.opnSel) { history.back(); return; }
+  closeSel();
   const u = new URL(location.href);
   u.searchParams.delete('p');
   history.replaceState(null, '', u);
+}
+
+function closeSel() {
+  if (state.sel) clearTimeout(state.sel.timer);
+  state.sel = null; state.follow = false;
   drawSel(); redraw();
 }
+
+window.addEventListener('popstate', () => {
+  const id = new URLSearchParams(location.search).get('p');
+  if (!id) { if (state.sel) closeSel(); } else if (state.pilots.has(id)) select(id, true, false);
+});
 
 setFold(false);
 void loadList();
 // l'âge des positions bouge même sans données nouvelles
-setInterval(() => { renderList(); if (state.sel) renderDetail(); }, 15000);
+setInterval(() => { renderList(); renderDetail(); }, 15000);
