@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { closingZone, dist, scoreFlight } from '../public/lib/xc.js';
-import { dayStart, splitFlights } from '../public/lib/flights.js';
+import { dayStart, pilotKind, splitFlights } from '../public/lib/flights.js';
 
 type P = [number, number, number, number | null, number | null, number | null, number | null];
 const KM_LAT = 1 / 111.195;
@@ -76,6 +76,14 @@ test('vols : séparés par un arrêt au sol ou par un trou, attente au décollag
   // un point lent seul (virage contre le vent) ne coupe rien
   const slow = fly([at(0, 0), at(5, 0)], t0).map((p, i) => (i === 20 ? [p[0], p[1], p[2], p[3], 1, p[5], p[6]] as P : p));
   assert.equal(splitFlights(slow).length, 1);
+  // posé puis en voiture, marqué au sol par son logiciel (8e valeur 1) : la route ne fait pas un vol
+  const drive = fly([at(10, 5), at(30, 5)], land[0] + 5, 5, 600).map(p => [p[0], p[1], p[2], p[3], 16, p[5], p[6], 1]);
+  const s2 = splitFlights([...a, ...drive] as P[]);
+  assert.deepEqual(s2.map(x => x.air), [true, false]);
+  assert.equal(s2[0].i1, a.length - 1);
+  assert.equal(pilotKind([...a, ...drive] as P[], false), 'car');
+  assert.equal(pilotKind([...a, ...drive.slice(0, 1)] as P[], false), 'foot', 'un seul point rapide : pas encore en voiture');
+  assert.equal(pilotKind(a, true), 'air');
   // jour solaire : minuit à 6° est = 23 h 36 UTC la veille
   assert.equal(dayStart(Date.UTC(2026, 10, 4, 12) / 1000, 6), Date.UTC(2026, 10, 3, 23, 36) / 1000);
 });

@@ -3,13 +3,13 @@
 // chacun ; relief en 3D avec le pilote à son altitude. Toutes les 5 s les points nouveaux ; toutes les 5 min la trace
 // entière, qui comble ce que le pilote a envoyé en retard après une coupure du réseau.
 
-import { splitFlights } from '/lib/flights.js';
+import { pilotKind, splitFlights } from '/lib/flights.js';
 import { scoreFlight } from '/lib/xc.js';
 
 const fr = /^fr/i.test(navigator.language);
 const T = fr
-  ? { title: 'Suivi en direct', alt: 'Altitude', spd: 'Vitesse', vz: 'Vario', km: 'Distance', maps: 'Ouvrir dans une carte', now: 'en direct', ago: 'dernière position il y a {t}', none: 'Aucune position gardée par le serveur', gone: 'Ce lien de suivi n’est plus valable', goneHint: 'Le pilote l’a remplacé : demande-lui le nouveau.', down: 'Réseau coupé, nouvel essai…', ok: 'Posé OK à {h}', sos: 'POSÉ PAS OK à {h} : besoin d’aide', flights: 'Vols', flight: 'vol de {d}', fai: 'FAI {k} s’il boucle', ground: 'au sol' }
-  : { title: 'Live tracking', alt: 'Altitude', spd: 'Speed', vz: 'Vario', km: 'Distance', maps: 'Open in a map', now: 'live', ago: 'last position {t} ago', none: 'No position kept by the server', gone: 'This tracking link is no longer valid', goneHint: 'The pilot replaced it: ask them for the new one.', down: 'Network down, trying again…', ok: 'Landed OK at {h}', sos: 'LANDED, NEEDS HELP at {h}', flights: 'Flights', flight: '{d} flight', fai: 'FAI {k} if closed', ground: 'on the ground' };
+  ? { title: 'Suivi en direct', alt: 'Altitude', spd: 'Vitesse', vz: 'Vario', km: 'Distance', maps: 'Ouvrir dans une carte', now: 'en direct', ago: 'dernière position il y a {t}', none: 'Aucune position gardée par le serveur', gone: 'Ce lien de suivi n’est plus valable', goneHint: 'Le pilote l’a remplacé : demande-lui le nouveau.', down: 'Réseau coupé, nouvel essai…', ok: 'Posé OK à {h}', sos: 'POSÉ PAS OK à {h} : besoin d’aide', flights: 'Vols', flight: 'vol de {d}', fai: 'FAI {k} s’il boucle', ground: 'au sol', air: 'en vol', foot: 'au sol', car: 'en voiture' }
+  : { title: 'Live tracking', alt: 'Altitude', spd: 'Speed', vz: 'Vario', km: 'Distance', maps: 'Open in a map', now: 'live', ago: 'last position {t} ago', none: 'No position kept by the server', gone: 'This tracking link is no longer valid', goneHint: 'The pilot replaced it: ask them for the new one.', down: 'Network down, trying again…', ok: 'Landed OK at {h}', sos: 'LANDED, NEEDS HELP at {h}', flights: 'Flights', flight: '{d} flight', fai: 'FAI {k} if closed', ground: 'on the ground', air: 'flying', foot: 'on the ground', car: 'driving' };
 const $ = id => document.getElementById(id);
 const el = (tag, props = {}, ...kids) => { const e = document.createElement(tag); Object.assign(e, props); for (const k of kids) if (k != null) e.append(k); return e; };
 const api = '/api/v1/shared/' + encodeURIComponent(location.pathname.split('/').filter(Boolean).pop() ?? '');
@@ -24,12 +24,14 @@ map.addControl(new maplibregl.NavigationControl({ visualizePitch: true }), 'top-
 const view3d = new View3d(), air3d = new Air3d();
 view3d.onChange = on => { air3d.setOn(!!on); draw(); };
 map.addControl(view3d, 'top-right');
-const dot = el('div', { className: 'pilot' });
+// le pilote en 2D : son icône (icons.js), l'aile tournée vers sa route, à pied ou en voiture droit à l'écran
+const dot = el('div', { className: 'pilot-icon' });
 const marker = new maplibregl.Marker({ element: dot });
+const COLOR = 'hsl(224 100% 50%)';
 // l'état du pilote, là où il l'a dit sur sa trace
 const flagDot = el('div', { className: 'pilot' });
 const flagMark = new maplibregl.Marker({ element: flagDot });
-let pts = [], flights = [], sel = -1, followLast = true, placed = false, loaded = false, serverLag = 0, fullAt = 0, who = null;
+let pts = [], flights = [], sel = -1, followLast = true, placed = false, loaded = false, serverLag = 0, fullAt = 0, who = null, ptype = null;
 const scores = new Map();
 
 const span = s => (s < 90 ? Math.round(s) + ' s' : s < 5400 ? Math.round(s / 60) + ' min' : `${Math.floor(s / 3600)} h ${String(Math.round((s % 3600) / 60)).padStart(2, '0')}`);
@@ -66,7 +68,9 @@ function draw() {
   const last = pts[pts.length - 1];
   if (!last) { $('state').textContent = T.none; $('figures').hidden = true; $('maps').hidden = true; $('lFlights').hidden = true; $('flights').replaceChildren(); return; }
   const age = Date.now() / 1000 - serverLag - last[0];
-  $('state').textContent = age < FRESH_S ? T.now : T.ago.replace('{t}', span(age));
+  // en vol, au sol ou en voiture : marqué au sol par son logiciel, sinon son dernier point dans un vol
+  const kind = pilotKind(pts, !!flights.length && flights[flights.length - 1].i1 === pts.length - 1);
+  $('state').textContent = `${age < FRESH_S ? T.now : T.ago.replace('{t}', span(age))} · ${T[kind]}`;
   $('alt').textContent = fig(last[3], 0, 'm');
   $('spd').textContent = fig(last[4] === null ? null : last[4] * 3.6, 0, 'km/h');
   $('vz').textContent = fig(last[6], 1, 'm/s');
@@ -98,10 +102,13 @@ function draw() {
   // en 3D, le pilote est toujours là où il est : au sol sans vol gardé, ou un vol passé choisi, sa position du moment
   // en plus (avant, rien du tout en 3D tant qu'il n'avait pas volé)
   const items = [], current = f && sel === flights.length - 1;
-  if (f) items.push({ id: 'p', color: 'hsl(224 100% 50%)', sel: true, old: !current || age > FRESH_S, label: current ? who ?? '' : '', pts: current ? pts.slice(f.i0) : pts.slice(f.i0, f.i1 + 1) });
-  if (!current) items.push({ id: 'now', color: 'hsl(224 100% 50%)', sel: true, old: age > FRESH_S, label: who ?? '', pts: pts.slice(tailFrom) });
+  const icon = pilotIcon(kind, ptype, COLOR, true), rot = iconRotation(kind, last[5]);
+  if (f) items.push({ id: 'p', color: COLOR, sel: true, old: !current || age > FRESH_S, label: current ? who ?? '' : '', pts: current ? pts.slice(f.i0) : pts.slice(f.i0, f.i1 + 1), ...(current ? { icon, rot } : {}) });
+  if (!current) items.push({ id: 'now', color: COLOR, sel: true, old: age > FRESH_S, label: who ?? '', pts: pts.slice(tailFrom), icon, rot });
   air3d.setData(items, true, null);
-  marker.setLngLat([last[2], last[1]]);
+  if (dot.firstChild !== icon) dot.replaceChildren(icon);
+  dot.style.opacity = age > FRESH_S ? '0.6' : '1';
+  marker.setLngLat([last[2], last[1]]).setRotation(rot).setRotationAlignment(kind === 'air' ? 'map' : 'viewport');
   if (on3d) marker.remove(); else marker.addTo(map);
   if (!placed) {
     placed = true;
@@ -136,6 +143,7 @@ async function tick() {
     const d = await r.json();
     if (!r.ok) throw new Error(d.error);
     who = [d.p.first, d.p.last].filter(Boolean).join(' ');
+    ptype = d.p.type ?? null;
     $('name').textContent = who || T.title;
     document.title = who ? `${who} – ${T.title}` : T.title;
     $('wing').textContent = [d.p.brand, d.p.wing].filter(Boolean).join(' ');

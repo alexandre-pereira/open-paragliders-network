@@ -80,6 +80,9 @@ export const wire = (f: Fix | NewFix): WireFix => [
   f.spd === null ? null : round(f.spd, 1), f.crs === null ? null : Math.round(f.crs) % 360, f.vz === null ? null : round(f.vz, 1),
 ];
 
+/** format réseau avec la marque au sol (8e valeur 1) : pour le lien de suivi, seul à lire ces points */
+export const wireGnd = (f: Fix): WireFix | [...WireFix, 1] => (f.gnd ? [...wire(f), 1] : wire(f));
+
 /** [ouest, sud, est, nord] ; ouest > est : la boîte passe l'antiméridien */
 export type BBox = [number, number, number, number];
 

@@ -9,7 +9,7 @@ import { statfsSync } from 'node:fs';
 import { Apps } from './apps.ts';
 import { DayMap } from './daymap.ts';
 import type { Config } from './config.ts';
-import { parseFix, wire, type NewFix } from './fix.ts';
+import { parseFix, wire, wireGnd, type NewFix } from './fix.ts';
 import { Live } from './live.ts';
 import { EMPTY_PROFILE, mergeProfile, sameProfile, type PilotStatus, type Profile } from './profile.ts';
 import { RateLimiter } from './rate.ts';
@@ -158,6 +158,8 @@ export class Service {
     const shown = stored.filter(f => !f.gnd);
     this.live.add(p.pid, shown);
     this.dayMap.note(p.pid, shown);
+    // au sol : la carte publique dit seulement qu'il y est (à pied ou en voiture), jamais où
+    if (shown.length < stored.length) this.dayMap.ground(p.pid, stored.filter(f => f.gnd));
     if (Math.floor(nowS) - p.seen >= 60) { this.store.touch(p.pid, Math.floor(nowS)); p.seen = Math.floor(nowS); }
     if (stored.length) this.onFixes?.();
     return { ok: true, pilot: String(p.pid), stored: stored.length, dup, bad, last: this.store.lastFix(p.pid, true)?.ts ?? null };
@@ -244,7 +246,7 @@ export class Service {
     const nowS = Math.floor(this.now()), oldest = this.oldest();
     const after = since !== null && since !== '' && Number.isFinite(Number(since)) ? Number(since) + 1 : null;
     const { status, ...who } = publicProfile(p.profile);
-    return { p: who, ...(status ? { status } : {}), now: nowS, pts: (after === null ? this.store.trackThin(pid, oldest, nowS + 120, SHARED_STEP, true) : this.store.track(pid, after, nowS + 120, 100000, 0, true)).map(wire) };
+    return { p: who, ...(status ? { status } : {}), now: nowS, pts: (after === null ? this.store.trackThin(pid, oldest, nowS + 120, SHARED_STEP, true) : this.store.track(pid, after, nowS + 120, 100000, 0, true)).map(wireGnd) };
   }
 
   /** le pilote efface tout ce que le serveur a de lui */

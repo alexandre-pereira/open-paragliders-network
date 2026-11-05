@@ -90,7 +90,8 @@ Uploads may also use objects: `{ "t": …, "lat": …, "lon": …, "alt": …, "
 subscriber, no public map (§11) and no live view ever gets it, so a pilot sharing from take-off (or from home) does not
 publish where they wait. While the pilot is in `sos` (§7) their fixes are public whatever `gnd` says, and the alert
 takes their last fix, ground ones included, when it gives no position. Send ground fixes rather than nothing: the
-family following the link sees the pilot before take-off and after landing. Fixes are always sent back without `gnd`.
+family following the link sees the pilot before take-off and after landing. Fixes are sent back without `gnd`, except
+on the tracking link (§6), which marks them, and the public map only says the pilot is on the ground, never where (§11).
 
 A fix is rejected (counted in `bad`) when its time is more than 2 min in the future or older than the history
 (`retentionH`, 72 h), or its position is impossible (including 0,0). One fix per pilot per second: a second fix with
@@ -321,6 +322,8 @@ The same paths are also served under `/lt24/`.
 Each pilot can have one private link for their family and friends, who need no app and no account:
 `https://<server>/p/<token>` opens a live map of that pilot alone, with everything the server keeps (72 h) split into
 flights, ground fixes (`gnd`, see Fix in §1) included: the link is the only place they show. The link is permanent until the pilot replaces it.
+The page draws the pilot flying (their wing, turned to their course), on foot or driving: driving is a ground fix run at
+8 m/s or more, twice within 5 min.
 
 ```
 POST /api/v1/share
@@ -358,8 +361,8 @@ GET /api/v1/shared/<token>?since=1793440000
   "pts": [[1793439460, 45.88, 6.10, 1702, 10.1, 265, 0.8], …] }
 ```
 
-`pts`: the whole history kept (`retentionH`), one fix per 5 s; with `since` (a fix time), every fix after it. The page
-splits it into flights (§11). `status`: the pilot's
+`pts`: the whole history kept (`retentionH`), one fix per 5 s; with `since` (a fix time), every fix after it. A ground
+fix carries an 8th value `1` (`gnd`). The page splits it into flights (§11); a ground fix is never part of one. `status`: the pilot's
 state, when they have one (§7). No device, no pilot id, no app name. A replaced, erased, blocked or unknown link answers
 the same `404 unknown-link`. The page is served with `noindex` and `no-referrer`.
 
@@ -506,7 +509,9 @@ GET /api/v1/map
 
 `flight`: start, end and fixes of the last flight; `km` its free distance, `fai` / `flat` the largest FAI / any triangle
 it would close (km, from 10 km), absent when the pilot has not flown. `tail`: the last 5 min, one fix per 15 s, for a
-pilot seen in the last 5 min. Same answer for everyone for 3 s. No device, app, ids or pilot secret.
+pilot seen in the last 5 min. `ground`: `"foot"` or `"car"` when the pilot's app has marked them on the ground (`gnd`)
+since `last`, driving as on the tracking link (§6); their ground fixes themselves stay private. Same answer for everyone
+for 3 s. No device, app, ids or pilot secret.
 
 ```
 GET /api/v1/map/42

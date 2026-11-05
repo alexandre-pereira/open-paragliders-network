@@ -35,17 +35,20 @@ function speeds(pts) {
 /**
  * pts : la trace triée par heure, au format du réseau [t, lat, lon, alt, spd, …].
  * Renvoie les morceaux qui se suivent : { i0, i1 (indices compris), t0, t1, air } ; air : un vol, sinon au sol.
+ * Un point marqué au sol par son logiciel (8e valeur 1, lien de suivi) n'est jamais dans un vol : en voiture, il roule
+ * assez vite pour en faire un.
  */
 export function splitFlights(pts) {
   const n = pts.length;
   if (!n) return [];
   const v = speeds(pts);
-  // morceaux séparés par les trous
+  // morceaux séparés par les trous, et là où le logiciel le dit posé ou décollé
   const chunks = [];
   let c0 = 0;
+  const gnd = i => pts[i][7] === 1;
   for (let i = 1; i < n; i++) {
     const gap = pts[i][0] - pts[i - 1][0];
-    if (gap >= GAP_ANY || (gap >= GAP_LANDED && (v[i - 1] < SLOW || v[i] < SLOW))) { chunks.push([c0, i - 1]); c0 = i; }
+    if (gap >= GAP_ANY || (gap >= GAP_LANDED && (v[i - 1] < SLOW || v[i] < SLOW)) || gnd(i) !== gnd(i - 1)) { chunks.push([c0, i - 1]); c0 = i; }
   }
   chunks.push([c0, n - 1]);
 
@@ -57,6 +60,7 @@ export function splitFlights(pts) {
     out.push({ i0, i1, t0: pts[i0][0], t1: pts[i1][0], air: !ground && moving >= AIR_S });
   };
   for (const [a, b] of chunks) {
+    if (gnd(a)) { push(a, b, true); continue; }
     // les arrêts au sol du morceau : une suite de points lents assez longue, à la même altitude
     let start = a, i = a;
     while (i <= b) {
@@ -91,4 +95,31 @@ export function splitFlights(pts) {
 export function dayStart(t, lon) {
   const off = Math.round((lon ?? 0) * 240);
   return Math.floor((t + off) / 86400) * 86400 - off;
+}
+
+/** au sol selon son logiciel, il roule : au moins CAR_FIXES points à CAR_MS (m/s) ou plus dans ses CAR_PARK_S (s)
+ *  derniers ; arrêté (un feu, un bouchon) il reste en voiture jusqu'à CAR_PARK_S sans rouler (garé, à pied) */
+export const CAR_MS = 8, CAR_PARK_S = 300, CAR_FIXES = 2;
+
+/** pts : des points au sol, triés par heure → « car » (en voiture) ou « foot » (à pied, posé, au déco) */
+export function groundKind(pts) {
+  const last = pts[pts.length - 1];
+  if (!last) return 'foot';
+  let fast = 0;
+  for (let i = pts.length - 1; i >= 0 && last[0] - pts[i][0] <= CAR_PARK_S; i--) if ((pts[i][4] ?? 0) >= CAR_MS && ++fast >= CAR_FIXES) return 'car';
+  return 'foot';
+}
+
+/**
+ * l'état d'un pilote d'après sa trace (format du réseau, triée) : « air », « foot » ou « car ». Un dernier point marqué
+ * au sol (8e valeur 1, lien de suivi) : son logiciel le sait au sol, il y est, à pied ou en voiture selon ses derniers
+ * points au sol. Sans cette marque : `inFlight` (le dernier point est dans un vol de splitFlights) décide.
+ */
+export function pilotKind(pts, inFlight) {
+  const last = pts[pts.length - 1];
+  if (!last) return 'foot';
+  if (last[7] !== 1) return inFlight ? 'air' : 'foot';
+  let i = pts.length - 1;
+  while (i > 0 && pts[i - 1][7] === 1) i--;
+  return groundKind(pts.slice(i));
 }

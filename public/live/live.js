@@ -11,7 +11,7 @@ const T = fr ? {
   sorts: { km: 'Distance', fai: 'Triangle FAI', name: 'Nom', alt: 'Altitude', recent: 'Dernière position' },
   leagues: { xcontest: 'XContest', cfd: 'CFD (FFVL)' }, gaps: { xc20: 'écart < 20 %', xc5: 'écart < 5 %', cfd: 'écart ≤ 5 % ou 3 km' },
   count: '{n} pilotes aujourd’hui · {f} en vol', none: 'Personne n’a encore volé aujourd’hui.', noMatch: 'Aucun pilote ne correspond.',
-  flying: 'En vol', landed: 'Posé il y a {t}', lost: 'Dernière position il y a {t}', ground: 'Au sol, pas encore décollé',
+  flying: 'En vol', landed: 'Posé il y a {t}', lost: 'Dernière position il y a {t}', ground: 'Au sol, pas encore décollé', car: 'en voiture',
   ok: 'POSÉ OK à {h}', sos: 'POSÉ PAS OK à {h} : besoin d’aide', sosShort: 'POSÉ PAS OK',
   alt: 'Altitude', vz: 'Vario', spd: 'Vitesse', dur: 'Vol', free: 'Distance libre', closedFai: 'Triangle FAI', closedFlat: 'Triangle plat', total: 'Points {r}',
   openFaiIf: 'FAI s’il boucle', openFlatIf: 'Plat s’il boucle', openFai: 'Triangle FAI', openFlat: 'Triangle plat', target: 'Triangle visé',
@@ -23,7 +23,7 @@ const T = fr ? {
   sorts: { km: 'Distance', fai: 'FAI triangle', name: 'Name', alt: 'Altitude', recent: 'Last position' },
   leagues: { xcontest: 'XContest', cfd: 'CFD (FFVL)' }, gaps: { xc20: 'gap < 20 %', xc5: 'gap < 5 %', cfd: 'gap ≤ 5 % or 3 km' },
   count: '{n} pilots today · {f} flying', none: 'Nobody has flown today yet.', noMatch: 'No pilot matches.',
-  flying: 'Flying', landed: 'Landed {t} ago', lost: 'Last position {t} ago', ground: 'On the ground, not taken off yet',
+  flying: 'Flying', landed: 'Landed {t} ago', lost: 'Last position {t} ago', ground: 'On the ground, not taken off yet', car: 'driving',
   ok: 'LANDED OK at {h}', sos: 'LANDED, NEEDS HELP at {h}', sosShort: 'NEEDS HELP',
   alt: 'Altitude', vz: 'Vario', spd: 'Speed', dur: 'Flight', free: 'Free distance', closedFai: 'FAI triangle', closedFlat: 'Flat triangle', total: '{r} points',
   openFaiIf: 'FAI if closed', openFlatIf: 'Flat if closed', openFai: 'FAI triangle', openFlat: 'Flat triangle', target: 'Target triangle',
@@ -68,6 +68,17 @@ const km = m => `${num(m / 1000, m < 100000 ? 1 : 0)} km`;
 const span = s => { s = Math.max(0, s); return s < 90 ? `${Math.round(s)} s` : s < 5400 ? `${Math.round(s / 60)} min` : `${Math.floor(s / 3600)} h ${String(Math.round((s % 3600) / 60)).padStart(2, '0')}`; };
 const hhmm = t => new Date(t * 1000).toLocaleTimeString(fr ? 'fr-FR' : 'en-GB', { hour: '2-digit', minute: '2-digit' });
 const flying = p => nowS() - p.last[0] <= FLYING_S && !!p.flight && p.last[0] - p.flight.t1 <= FLYING_S;
+/**
+ * son icône : « foot » ou « car » quand son logiciel le dit au sol (`ground` du serveur), sinon en vol tant que son
+ * dernier point est dans son vol, sans « posé » déclaré depuis, et pas lent sans nouvelles (posé sans le dire)
+ */
+const kindOf = p => {
+  if (p.ground) return p.ground;
+  if (!p.flight || p.last[0] - p.flight.t1 > FLYING_S) return 'foot';
+  const st = p.p?.status;
+  if (st && st.t >= p.flight.t0) return 'foot';
+  return nowS() - p.last[0] > FLYING_S && (p.last[4] ?? 0) < 2.5 ? 'foot' : 'air';
+};
 
 // ── page ─────────────────────────────────────────────────────────────────────────────────────────────────────────
 
@@ -131,6 +142,7 @@ const view3d = new View3d(), air3d = new Air3d();
 view3d.onChange = on => apply3d(on);
 map.addControl(view3d, 'top-right');
 map.addControl(new maplibregl.ScaleControl({ unit: 'metric' }), 'bottom-right');
+addPilotImages(map);
 const mapReady = new Promise(ok => map.on('load', ok));
 const EMPTY = { type: 'FeatureCollection', features: [] };
 
@@ -142,14 +154,19 @@ mapReady.then(() => {
   map.addLayer({ id: 'sel-case', type: 'line', source: 'sel', layout: { 'line-join': 'round', 'line-cap': 'round' }, paint: { 'line-color': '#fff', 'line-width': 6, 'line-opacity': 0.8 } });
   map.addLayer({ id: 'sel', type: 'line', source: 'sel', layout: { 'line-join': 'round', 'line-cap': 'round' }, paint: { 'line-color': ['get', 'color'], 'line-width': 3.5 } });
   map.addLayer({ id: 'xc', type: 'line', source: 'xc', layout: { 'line-join': 'round' }, paint: { 'line-color': ['get', 'color'], 'line-width': ['get', 'w'], 'line-dasharray': [3, 2] } });
-  map.addLayer({ id: 'pos', type: 'circle', source: 'pos', filter: ['!', ['get', 'cluster']],
-    paint: { 'circle-radius': ['case', ['get', 'sel'], 9, 6.5], 'circle-color': ['get', 'color'], 'circle-stroke-color': ['case', ['get', 'sos'], '#c8102e', '#fff'], 'circle-stroke-width': ['case', ['get', 'sos'], 4, 2], 'circle-opacity': ['case', ['get', 'down'], 0.55, 1] } });
+  // besoin d'aide : un anneau rouge autour de l'icône
+  map.addLayer({ id: 'sos-ring', type: 'circle', source: 'pos', filter: ['all', ['!', ['get', 'cluster']], ['get', 'sos']],
+    paint: { 'circle-radius': 17, 'circle-color': 'rgba(200, 16, 46, 0.12)', 'circle-stroke-color': '#c8102e', 'circle-stroke-width': 3 } });
+  // l'icône (icons.js) : en vol l'aile tournée vers sa route, au sol debout, en voiture ; le pilote choisi dessus
+  map.addLayer({ id: 'pos', type: 'symbol', source: 'pos', filter: ['!', ['get', 'cluster']],
+    layout: { 'icon-image': ['get', 'icon'], 'icon-rotate': ['get', 'rot'], 'icon-rotation-alignment': 'map', 'icon-allow-overlap': true, 'icon-ignore-placement': true, 'symbol-sort-key': ['case', ['get', 'sel'], 1, 0] },
+    paint: { 'icon-opacity': ['case', ['get', 'down'], 0.55, 1] } });
   map.addLayer({ id: 'clusters', type: 'circle', source: 'pos', filter: ['get', 'cluster'],
     paint: { 'circle-radius': ['interpolate', ['linear'], ['get', 'count'], 3, 15, 50, 26], 'circle-color': '#0b6bcb', 'circle-opacity': 0.85, 'circle-stroke-color': '#fff', 'circle-stroke-width': 2 } });
   map.addLayer({ id: 'cluster-n', type: 'symbol', source: 'pos', filter: ['get', 'cluster'],
     layout: { 'text-field': ['to-string', ['get', 'count']], 'text-font': ['Noto Sans Bold'], 'text-size': 13, 'text-allow-overlap': true }, paint: { 'text-color': '#fff' } });
   map.addLayer({ id: 'labels', type: 'symbol', source: 'pos', filter: ['!', ['get', 'cluster']],
-    layout: { 'text-field': ['get', 'label'], 'text-font': ['Noto Sans Regular'], 'text-size': 12, 'text-offset': [0, 1.1], 'text-anchor': 'top', 'text-optional': true },
+    layout: { 'text-field': ['get', 'label'], 'text-font': ['Noto Sans Regular'], 'text-size': 12, 'text-offset': [0, 1.4], 'text-anchor': 'top', 'text-optional': true },
     paint: { 'text-color': '#1d2330', 'text-halo-color': '#fff', 'text-halo-width': 1.5 } });
   for (const id of ['pos', 'labels', 'tails', 'sel']) {
     map.on('click', id, e => select(e.features[0].properties.id, false));
@@ -180,8 +197,9 @@ function apply3d(on) {
   map.setPaintProperty('tails', 'line-opacity', on ? 0.2 : 0.85);
   map.setPaintProperty('sel', 'line-opacity', on ? 0.25 : 1);
   map.setPaintProperty('sel-case', 'line-opacity', on ? 0 : 0.8);
-  map.setPaintProperty('pos', 'circle-opacity', on ? 0.3 : ['case', ['get', 'down'], 0.55, 1]);
-  map.setPaintProperty('pos', 'circle-stroke-width', on ? 0 : ['case', ['get', 'sos'], 4, 2]);
+  // en 3D l'icône est en l'air (air3d.js) : au sol il ne reste que son ombre
+  map.setPaintProperty('pos', 'icon-opacity', on ? 0.25 : ['case', ['get', 'down'], 0.55, 1]);
+  map.setPaintProperty('sos-ring', 'circle-stroke-opacity', on ? 0.3 : 1);
   drawPilots();
 }
 
@@ -314,16 +332,21 @@ function drawPilots() {
   const list = visible(), g = clusterize(list);
   state.groups = g;
   const sel = state.sel?.id;
-  const feats = g.singles.map(p => ({
-    type: 'Feature', geometry: { type: 'Point', coordinates: [p.last[2], p.last[1]] },
-    properties: { id: p.id, color: colorOf(p.id), sel: p.id === sel, sos: p.p?.status?.state === 'sos', down: !flying(p), label: labelOf(p), cluster: false },
-  }));
+  const feats = g.singles.map(p => {
+    const kind = kindOf(p);
+    return {
+      type: 'Feature', geometry: { type: 'Point', coordinates: [p.last[2], p.last[1]] },
+      properties: { id: p.id, color: colorOf(p.id), sel: p.id === sel, sos: p.p?.status?.state === 'sos', down: !flying(p), label: labelOf(p), cluster: false,
+        icon: pilotIconId(kind, p.p?.type, colorOf(p.id), p.id === sel), rot: iconRotation(kind, p.last[5]) },
+    };
+  });
   for (const c of g.clusters) feats.push({ type: 'Feature', geometry: { type: 'Point', coordinates: [c.lon, c.lat] }, properties: { cluster: true, count: c.members.length, key: c.key } });
   map.getSource('pos').setData({ type: 'FeatureCollection', features: feats });
   const lines = g.singles.filter(p => state.tails.has(p.id) && p.tail?.length > 1 && p.id !== sel).map(p => ({ type: 'Feature', properties: { id: p.id, color: colorOf(p.id) }, geometry: { type: 'LineString', coordinates: p.tail.map(f => [f[2], f[1]]) } }));
   map.getSource('tails').setData({ type: 'FeatureCollection', features: lines });
   air3d.setData(g.singles.map(p => ({
     id: p.id, color: colorOf(p.id), sel: p.id === sel, old: !flying(p), label: labelOf(p),
+    icon: pilotIcon(kindOf(p), p.p?.type, colorOf(p.id), p.id === sel), rot: iconRotation(kindOf(p), p.last[5]),
     pts: p.id === sel && state.sel.pts?.length ? state.sel.pts : state.tails.has(p.id) && p.tail?.length ? p.tail : [p.last],
   })), true, null);
 }
@@ -397,8 +420,10 @@ function renderDetail() {
   const st = p.p?.status, kids = [btn('✕', unselect, 'icon close'), back, el('h2', { textContent: nameOf(p) }), el('div', { className: 'muted', textContent: wingOf(p) })];
   if (st) kids.push(el('div', { className: `state ${st.state}`, textContent: T[st.state].replace('{h}', hhmm(st.t)) }));
   else {
-    const age = nowS() - last[0], up = s.t1 && last[0] - s.t1 > FLYING_S;
-    kids.push(el('div', { className: 'state', textContent: !p.flight && !s.t1 ? T.ground : up ? T.landed.replace('{t}', span(nowS() - s.t1)) : age <= FLYING_S ? T.flying : T.lost.replace('{t}', span(age)) }));
+    // posé : vu sur sa trace, ou dit par son logiciel (au sol, à pied ou en voiture)
+    const age = nowS() - last[0], kind = kindOf(p), up = s.t1 && (last[0] - s.t1 > FLYING_S || kind !== 'air');
+    const txt = !p.flight && !s.t1 ? T.ground : up ? T.landed.replace('{t}', span(nowS() - s.t1)) : age <= FLYING_S ? T.flying : T.lost.replace('{t}', span(age));
+    kids.push(el('div', { className: 'state', textContent: kind === 'car' ? `${txt} · ${T.car}` : txt }));
   }
   const fig = (v, k) => el('div', {}, el('b', { textContent: v }), el('span', { textContent: k }));
   const fp = flightPts(s), dur = fp.length > 1 ? fp[fp.length - 1][0] - fp[0][0] : 0;

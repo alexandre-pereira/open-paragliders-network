@@ -238,6 +238,8 @@ export class Api {
         memory: svc.live.stats(), clients: this.wsCount(), maintenance: svc.lastMaintenance, uptime: Math.round(process.uptime()),
       };
     }
+    // qui est au sol (à pied, en voiture) selon son logiciel : ses points au sol ne viennent pas au back-office
+    if (m === 'GET' && path === 'ground') return { ground: svc.dayMap.grounded() };
     if (m === 'GET' && path === 'tracks') {
       // toutes les traces d'une période, allégées pour la carte ; seq : pour suivre la suite en direct (since)
       const { from, to, step } = window(q, svc.now(), svc.cfg.retentionH);

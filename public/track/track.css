@@ -24,3 +24,5 @@ dd { margin: 0; font-weight: 700; font-variant-numeric: tabular-nums; }
 #flights small { display: block; color: var(--soft); font-size: .8rem; font-weight: 400; }
 .pilot { width: 16px; height: 16px; border: 3px solid #fff; border-radius: 50%; background: var(--line); box-shadow: 0 0 4px rgba(0, 0, 0, .5); }
 .view3d { font-weight: 700; font-size: 12px; color: #1d2330; }
+.pilot-icon { width: 34px; height: 34px; filter: drop-shadow(0 0 2px rgba(0, 0, 0, .45)); }
+.pilot-icon canvas { width: 34px; height: 34px; display: block; }

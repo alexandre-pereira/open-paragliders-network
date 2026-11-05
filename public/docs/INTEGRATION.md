@@ -109,7 +109,8 @@ queue.push([time, lat, lon, altitude, groundSpeed, track, verticalSpeed]);
 
 Fixes marked on the ground (`1` in position 7) stay private: only the pilot's tracking link shows them, never the
 public map nor other pilots' apps (unless the pilot calls for help). So you can share from the moment the app starts
-without publishing where the pilot waits.
+without publishing where the pilot waits. Marking them also gives the right icon: the tracking link and the public map
+draw the pilot on foot or in a car (fast ground fixes) instead of flying.
 
 **Remove fixes from the queue only when the server has answered.** Sending a fix twice is harmless: the server keeps one
 per pilot per second. So a lost answer costs nothing, and a long backlog goes out in a few requests.

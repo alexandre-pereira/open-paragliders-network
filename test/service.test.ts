@@ -196,10 +196,17 @@ test('au sol (gnd) : privé, seulement au lien de suivi ; public en SOS', () => 
   const link = svc.shared(token, null).pts;
   assert.ok(link.some(f => f[2] === 6.0) && link.some(f => f[2] === 6.3), 'le lien de suivi voit tout');
   assert.equal(A.last, t0 + 660 + 29 * 3);
+  assert.ok(link.filter(f => f[2] === 6.3).every(f => f[7] === 1) && link.filter(f => f[2] !== 6.0 && f[2] !== 6.3).every(f => f.length === 7), 'le lien de suivi sait quels points sont au sol');
+  const onMap = () => svc.mapList().pilots.find(x => x.id === A.pilot)! as { ground?: string; last: number[] };
+  assert.equal(onMap().ground, 'foot', 'la carte publique le sait posé, à pied');
+  // il roule (au sol pour son logiciel, 15 m/s) : en voiture, toujours sans montrer où
+  svc.ingest({ ...dev, points: Array.from({ length: 4 }, (_, i) => [at() - 12 + i * 3, 45.97, 6.32 + i * 0.0005, 480, 15, 90, 0, 1]) });
+  assert.equal(onMap().ground, 'car');
+  assert.equal(onMap().last[2], 6.1 + 199 * 0.0005);
 
   // en SOS : son dernier point au sol devient l'endroit de l'alerte, et ses points suivants sont publics
   svc.setStatus({ ...dev, state: 'sos' });
-  assert.equal(svc.live.pilots.get(pid)!.profile.status!.lon, 6.3);
+  assert.equal(svc.live.pilots.get(pid)!.profile.status!.lon, 6.3215, 'son dernier point au sol, au bout de la route');
   svc.ingest({ ...dev, points: ground(at(), 2, 45.96, 6.31) });
   assert.equal(svc.live.last(pid)!.lon, 6.31);
   assert.ok(svc.sosList().pilots[0].pts.some(f => f[2] === 6.3), 'la page SOS montre sa trace au sol');

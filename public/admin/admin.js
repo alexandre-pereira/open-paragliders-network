@@ -19,7 +19,17 @@ const state = {
   seq: 0, from: 0, to: 0, period: 3600, custom: false,
   sel: null, follow: false, dirty: true,
   ws: null, wsTry: 0, wsTimer: null, pingAt: 0, pongAt: 0,
+  /** id → « foot » | « car » : au sol selon son logiciel (GET admin/ground) */
+  ground: {},
 };
+const GROUND_EVERY = 15000;
+
+async function loadGround() {
+  try {
+    const g = (await api('/admin/ground')).ground ?? {};
+    if (JSON.stringify(g) !== JSON.stringify(state.ground)) { state.ground = g; state.dirty = true; }
+  } catch { /* au prochain tour */ }
+}
 
 const nowS = () => Math.floor(Date.now() / 1000);
 const nameOf = p => [p.p?.first, p.p?.last].filter(Boolean).join(' ') || `Pilote ${p.id}`;
@@ -67,7 +77,22 @@ const view3d = new View3d(), air3d = new Air3d();
 view3d.onChange = apply3d;
 map.addControl(view3d, 'top-right');
 map.addControl(new maplibregl.ScaleControl({ unit: 'metric' }), 'bottom-right');
+addPilotImages(map);
 const mapReady = new Promise(ok => map.on('load', ok));
+
+/**
+ * son icône : au sol (« foot ») quand ses derniers points restent lents (moins de 2,5 m/s) à la même altitude (40 m)
+ * depuis 5 min, ou lents et sans nouvelles depuis OLD_S ; sinon en vol. Le back-office n'a pas ses points privés au sol
+ * (marqués par son logiciel), seulement l'état qu'ils disent (state.ground, lu toutes les GROUND_EVERY ms)
+ */
+function kindOf(p) {
+  const pts = p.pts, last = pts[pts.length - 1];
+  if (state.ground[p.id]) return state.ground[p.id];
+  if ((last[4] ?? 0) >= 2.5) return 'air';
+  let i = pts.length - 1, lo = last[3] ?? 0, hi = lo;
+  while (i > 0 && (pts[i - 1][4] ?? 0) < 2.5) { i--; lo = Math.min(lo, pts[i][3] ?? lo); hi = Math.max(hi, pts[i][3] ?? hi); }
+  return (last[0] - pts[i][0] >= 300 && hi - lo <= 40) || nowS() - last[0] > OLD_S ? 'foot' : 'air';
+}
 
 const EMPTY = { type: 'FeatureCollection', features: [] };
 mapReady.then(() => {
@@ -75,10 +100,12 @@ mapReady.then(() => {
   map.addSource('pos', { type: 'geojson', data: EMPTY });
   map.addLayer({ id: 'tracks', type: 'line', source: 'tracks', layout: { 'line-join': 'round', 'line-cap': 'round' },
     paint: { 'line-color': ['get', 'color'], 'line-width': ['case', ['get', 'sel'], 4, 2], 'line-opacity': ['case', ['get', 'old'], 0.45, 0.9] } });
-  map.addLayer({ id: 'pos', type: 'circle', source: 'pos',
-    paint: { 'circle-radius': ['case', ['get', 'sel'], 8, 6], 'circle-color': ['get', 'color'], 'circle-stroke-color': '#fff', 'circle-stroke-width': 2, 'circle-opacity': ['case', ['get', 'old'], 0.5, 1] } });
+  // l'icône (icons.js) : en vol l'aile tournée vers sa route, au sol debout ; le pilote choisi dessus
+  map.addLayer({ id: 'pos', type: 'symbol', source: 'pos',
+    layout: { 'icon-image': ['get', 'icon'], 'icon-rotate': ['get', 'rot'], 'icon-rotation-alignment': 'map', 'icon-allow-overlap': true, 'icon-ignore-placement': true, 'symbol-sort-key': ['case', ['get', 'sel'], 1, 0] },
+    paint: { 'icon-opacity': ['case', ['get', 'old'], 0.5, 1] } });
   map.addLayer({ id: 'labels', type: 'symbol', source: 'pos',
-    layout: { 'text-field': ['get', 'label'], 'text-font': ['Noto Sans Regular'], 'text-size': 12, 'text-offset': [0, 1.2], 'text-anchor': 'top', 'text-allow-overlap': false },
+    layout: { 'text-field': ['get', 'label'], 'text-font': ['Noto Sans Regular'], 'text-size': 12, 'text-offset': [0, 1.4], 'text-anchor': 'top', 'text-allow-overlap': false },
     paint: { 'text-color': '#1d2330', 'text-halo-color': '#fff', 'text-halo-width': 1.5 } });
   for (const id of ['pos', 'tracks', 'labels']) {
     map.on('click', id, e => select(e.features[0].properties.id, false));
@@ -99,8 +126,7 @@ function apply3d(on) {
   if (!map.getLayer('pos')) return;
   map.setLayoutProperty('labels', 'visibility', on ? 'none' : 'visible');
   map.setPaintProperty('tracks', 'line-opacity', on ? ['case', ['get', 'old'], 0.12, 0.25] : ['case', ['get', 'old'], 0.45, 0.9]);
-  map.setPaintProperty('pos', 'circle-opacity', on ? 0.35 : ['case', ['get', 'old'], 0.5, 1]);
-  map.setPaintProperty('pos', 'circle-stroke-width', on ? 0 : 2);
+  map.setPaintProperty('pos', 'icon-opacity', on ? 0.25 : ['case', ['get', 'old'], 0.5, 1]);
 }
 
 /** l'état déclaré par le pilote, sur sa trace */
@@ -163,13 +189,15 @@ function render() {
           }
         } else lines.push({ type: 'Feature', properties: { id: p.id, color, sel, old }, geometry: { type: 'LineString', coordinates: p.pts.map(f => [f[2], f[1]]) } });
       }
-      points.push({ type: 'Feature', properties: { id: p.id, color, sel, old, label: labels ? [flagOf(p), nameOf(p), last[3] != null ? `${last[3]} m` : ''].filter(Boolean).join(' · ') : '' }, geometry: { type: 'Point', coordinates: [last[2], last[1]] } });
+      const kind = kindOf(p);
+      points.push({ type: 'Feature', properties: { id: p.id, color, sel, old, icon: pilotIconId(kind, p.p?.type, color, sel), rot: iconRotation(kind, last[5]), label: labels ? [flagOf(p), nameOf(p), last[3] != null ? `${last[3]} m` : ''].filter(Boolean).join(' · ') : '' }, geometry: { type: 'Point', coordinates: [last[2], last[1]] } });
     }
     map.getSource('tracks').setData({ type: 'FeatureCollection', features: lines });
     map.getSource('pos').setData({ type: 'FeatureCollection', features: points });
     air3d.setData(list.map(p => {
       const last = p.pts[p.pts.length - 1];
-      return { id: p.id, color: colorOf(p.id), sel: p.id === state.sel, old: nowS() - last[0] > OLD_S, pts: p.pts, label: labels ? [flagOf(p), nameOf(p), last[3] != null ? `${last[3]} m` : ''].filter(Boolean).join(' · ') : '' };
+      const kind = kindOf(p);
+      return { id: p.id, color: colorOf(p.id), sel: p.id === state.sel, old: nowS() - last[0] > OLD_S, pts: p.pts, icon: pilotIcon(kind, p.p?.type, colorOf(p.id), p.id === state.sel), rot: iconRotation(kind, last[5]), label: labels ? [flagOf(p), nameOf(p), last[3] != null ? `${last[3]} m` : ''].filter(Boolean).join(' · ') : '' };
     }), showTracks, byAlt ? f => altColor(Math.floor((f[3] ?? 0) / 250) * 250 + 125) : null);
   }
   if (state.sel) renderDetail();
@@ -392,9 +420,10 @@ async function start() {
   if (started) return;
   started = true;
   await mapReady;
-  await Promise.all([load(), stats()]);
+  await Promise.all([load(), stats(), loadGround()]);
   fitTo(visible());
   setInterval(stats, 30000);
+  setInterval(loadGround, GROUND_EVERY);
   setInterval(() => { if (state.dirty) { state.dirty = false; render(); } }, 1000);
   setInterval(() => {
     // fenêtre glissante en direct : les points sortis de la période partent
