@@ -108,7 +108,7 @@ function draw() {
   air3d.setData(items, true, null);
   if (dot.firstChild !== icon) dot.replaceChildren(icon);
   dot.style.opacity = age > FRESH_S ? '0.6' : '1';
-  marker.setLngLat([last[2], last[1]]).setRotation(rot).setRotationAlignment(kind === 'air' ? 'map' : 'viewport');
+  marker.setLngLat([last[2], last[1]]).setRotation(rot ?? 0).setRotationAlignment(rot === null ? 'viewport' : 'map').setPitchAlignment(rot === null ? 'viewport' : 'map');
   if (on3d) marker.remove(); else marker.addTo(map);
   if (!placed) {
     placed = true;

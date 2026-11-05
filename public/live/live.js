@@ -158,8 +158,12 @@ mapReady.then(() => {
   map.addLayer({ id: 'sos-ring', type: 'circle', source: 'pos', filter: ['all', ['!', ['get', 'cluster']], ['get', 'sos']],
     paint: { 'circle-radius': 17, 'circle-color': 'rgba(200, 16, 46, 0.12)', 'circle-stroke-color': '#c8102e', 'circle-stroke-width': 3 } });
   // l'icône (icons.js) : en vol l'aile tournée vers sa route, au sol debout, en voiture ; le pilote choisi dessus
-  map.addLayer({ id: 'pos', type: 'symbol', source: 'pos', filter: ['!', ['get', 'cluster']],
-    layout: { 'icon-image': ['get', 'icon'], 'icon-rotate': ['get', 'rot'], 'icon-rotation-alignment': 'map', 'icon-allow-overlap': true, 'icon-ignore-placement': true, 'symbol-sort-key': ['case', ['get', 'sel'], 1, 0] },
+  map.addLayer({ id: 'pos', type: 'symbol', source: 'pos', filter: ['all', ['!', ['get', 'cluster']], ['!', ['get', 'up']]],
+    layout: { 'icon-image': ['get', 'icon'], 'icon-rotate': ['get', 'rot'], 'icon-rotation-alignment': 'map', 'icon-pitch-alignment': 'map', 'icon-allow-overlap': true, 'icon-ignore-placement': true, 'symbol-sort-key': ['case', ['get', 'sel'], 1, 0] },
+    paint: { 'icon-opacity': ['case', ['get', 'down'], 0.55, 1] } });
+  // à pied et en voiture : droits à l'écran, la carte tournée ou inclinée ne les met jamais à l'envers
+  map.addLayer({ id: 'pos-up', type: 'symbol', source: 'pos', filter: ['all', ['!', ['get', 'cluster']], ['get', 'up']],
+    layout: { 'icon-image': ['get', 'icon'], 'icon-rotation-alignment': 'viewport', 'icon-pitch-alignment': 'viewport', 'icon-allow-overlap': true, 'icon-ignore-placement': true, 'symbol-sort-key': ['case', ['get', 'sel'], 1, 0] },
     paint: { 'icon-opacity': ['case', ['get', 'down'], 0.55, 1] } });
   map.addLayer({ id: 'clusters', type: 'circle', source: 'pos', filter: ['get', 'cluster'],
     paint: { 'circle-radius': ['interpolate', ['linear'], ['get', 'count'], 3, 15, 50, 26], 'circle-color': '#0b6bcb', 'circle-opacity': 0.85, 'circle-stroke-color': '#fff', 'circle-stroke-width': 2 } });
@@ -168,7 +172,7 @@ mapReady.then(() => {
   map.addLayer({ id: 'labels', type: 'symbol', source: 'pos', filter: ['!', ['get', 'cluster']],
     layout: { 'text-field': ['get', 'label'], 'text-font': ['Noto Sans Regular'], 'text-size': 12, 'text-offset': [0, 1.4], 'text-anchor': 'top', 'text-optional': true },
     paint: { 'text-color': '#1d2330', 'text-halo-color': '#fff', 'text-halo-width': 1.5 } });
-  for (const id of ['pos', 'labels', 'tails', 'sel']) {
+  for (const id of ['pos', 'pos-up', 'labels', 'tails', 'sel']) {
     map.on('click', id, e => select(e.features[0].properties.id, false));
     map.on('mouseenter', id, () => { map.getCanvas().style.cursor = 'pointer'; });
     map.on('mouseleave', id, () => { map.getCanvas().style.cursor = ''; });
@@ -198,7 +202,7 @@ function apply3d(on) {
   map.setPaintProperty('sel', 'line-opacity', on ? 0.25 : 1);
   map.setPaintProperty('sel-case', 'line-opacity', on ? 0 : 0.8);
   // en 3D l'icône est en l'air (air3d.js) : au sol il ne reste que son ombre
-  map.setPaintProperty('pos', 'icon-opacity', on ? 0.25 : ['case', ['get', 'down'], 0.55, 1]);
+  for (const id of ['pos', 'pos-up']) map.setPaintProperty(id, 'icon-opacity', on ? 0.25 : ['case', ['get', 'down'], 0.55, 1]);
   map.setPaintProperty('sos-ring', 'circle-stroke-opacity', on ? 0.3 : 1);
   drawPilots();
 }
@@ -337,7 +341,7 @@ function drawPilots() {
     return {
       type: 'Feature', geometry: { type: 'Point', coordinates: [p.last[2], p.last[1]] },
       properties: { id: p.id, color: colorOf(p.id), sel: p.id === sel, sos: p.p?.status?.state === 'sos', down: !flying(p), label: labelOf(p), cluster: false,
-        icon: pilotIconId(kind, p.p?.type, colorOf(p.id), p.id === sel), rot: iconRotation(kind, p.last[5]) },
+        icon: pilotIconId(kind, p.p?.type, colorOf(p.id), p.id === sel), rot: iconRotation(kind, p.last[5]) ?? 0, up: kind !== 'air' },
     };
   });
   for (const c of g.clusters) feats.push({ type: 'Feature', geometry: { type: 'Point', coordinates: [c.lon, c.lat] }, properties: { cluster: true, count: c.members.length, key: c.key } });

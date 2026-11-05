@@ -101,13 +101,17 @@ mapReady.then(() => {
   map.addLayer({ id: 'tracks', type: 'line', source: 'tracks', layout: { 'line-join': 'round', 'line-cap': 'round' },
     paint: { 'line-color': ['get', 'color'], 'line-width': ['case', ['get', 'sel'], 4, 2], 'line-opacity': ['case', ['get', 'old'], 0.45, 0.9] } });
   // l'icône (icons.js) : en vol l'aile tournée vers sa route, au sol debout ; le pilote choisi dessus
-  map.addLayer({ id: 'pos', type: 'symbol', source: 'pos',
-    layout: { 'icon-image': ['get', 'icon'], 'icon-rotate': ['get', 'rot'], 'icon-rotation-alignment': 'map', 'icon-allow-overlap': true, 'icon-ignore-placement': true, 'symbol-sort-key': ['case', ['get', 'sel'], 1, 0] },
+  map.addLayer({ id: 'pos', type: 'symbol', source: 'pos', filter: ['!', ['get', 'up']],
+    layout: { 'icon-image': ['get', 'icon'], 'icon-rotate': ['get', 'rot'], 'icon-rotation-alignment': 'map', 'icon-pitch-alignment': 'map', 'icon-allow-overlap': true, 'icon-ignore-placement': true, 'symbol-sort-key': ['case', ['get', 'sel'], 1, 0] },
+    paint: { 'icon-opacity': ['case', ['get', 'old'], 0.5, 1] } });
+  // à pied : droit à l'écran, la carte tournée ou inclinée ne le met jamais à l'envers
+  map.addLayer({ id: 'pos-up', type: 'symbol', source: 'pos', filter: ['get', 'up'],
+    layout: { 'icon-image': ['get', 'icon'], 'icon-rotation-alignment': 'viewport', 'icon-pitch-alignment': 'viewport', 'icon-allow-overlap': true, 'icon-ignore-placement': true, 'symbol-sort-key': ['case', ['get', 'sel'], 1, 0] },
     paint: { 'icon-opacity': ['case', ['get', 'old'], 0.5, 1] } });
   map.addLayer({ id: 'labels', type: 'symbol', source: 'pos',
     layout: { 'text-field': ['get', 'label'], 'text-font': ['Noto Sans Regular'], 'text-size': 12, 'text-offset': [0, 1.4], 'text-anchor': 'top', 'text-allow-overlap': false },
     paint: { 'text-color': '#1d2330', 'text-halo-color': '#fff', 'text-halo-width': 1.5 } });
-  for (const id of ['pos', 'tracks', 'labels']) {
+  for (const id of ['pos', 'pos-up', 'tracks', 'labels']) {
     map.on('click', id, e => select(e.features[0].properties.id, false));
     map.on('mouseenter', id, () => { map.getCanvas().style.cursor = 'pointer'; });
     map.on('mouseleave', id, () => { map.getCanvas().style.cursor = ''; });
@@ -126,7 +130,7 @@ function apply3d(on) {
   if (!map.getLayer('pos')) return;
   map.setLayoutProperty('labels', 'visibility', on ? 'none' : 'visible');
   map.setPaintProperty('tracks', 'line-opacity', on ? ['case', ['get', 'old'], 0.12, 0.25] : ['case', ['get', 'old'], 0.45, 0.9]);
-  map.setPaintProperty('pos', 'icon-opacity', on ? 0.25 : ['case', ['get', 'old'], 0.5, 1]);
+  for (const id of ['pos', 'pos-up']) map.setPaintProperty(id, 'icon-opacity', on ? 0.25 : ['case', ['get', 'old'], 0.5, 1]);
 }
 
 /** l'état déclaré par le pilote, sur sa trace */
@@ -190,14 +194,14 @@ function render() {
         } else lines.push({ type: 'Feature', properties: { id: p.id, color, sel, old }, geometry: { type: 'LineString', coordinates: p.pts.map(f => [f[2], f[1]]) } });
       }
       const kind = kindOf(p);
-      points.push({ type: 'Feature', properties: { id: p.id, color, sel, old, icon: pilotIconId(kind, p.p?.type, color, sel), rot: iconRotation(kind, last[5]), label: labels ? [flagOf(p), nameOf(p), last[3] != null ? `${last[3]} m` : ''].filter(Boolean).join(' · ') : '' }, geometry: { type: 'Point', coordinates: [last[2], last[1]] } });
+      points.push({ type: 'Feature', properties: { id: p.id, color, sel, old, icon: pilotIconId(kind, p.p?.type, color, sel), rot: iconRotation(kind, last[5]) ?? 0, up: kind !== 'air', label: labels ? [flagOf(p), nameOf(p), last[3] != null ? `${last[3]} m` : ''].filter(Boolean).join(' · ') : '' }, geometry: { type: 'Point', coordinates: [last[2], last[1]] } });
     }
     map.getSource('tracks').setData({ type: 'FeatureCollection', features: lines });
     map.getSource('pos').setData({ type: 'FeatureCollection', features: points });
     air3d.setData(list.map(p => {
       const last = p.pts[p.pts.length - 1];
       const kind = kindOf(p);
-      return { id: p.id, color: colorOf(p.id), sel: p.id === state.sel, old: nowS() - last[0] > OLD_S, pts: p.pts, icon: pilotIcon(kind, p.p?.type, colorOf(p.id), p.id === state.sel), rot: iconRotation(kind, last[5]), label: labels ? [flagOf(p), nameOf(p), last[3] != null ? `${last[3]} m` : ''].filter(Boolean).join(' · ') : '' };
+      return { id: p.id, color: colorOf(p.id), sel: p.id === state.sel, old: nowS() - last[0] > OLD_S, pts: p.pts, icon: pilotIcon(kind, p.p?.type, colorOf(p.id), p.id === state.sel), rot: iconRotation(kind, last[5]) ?? 0, up: kind !== 'air', label: labels ? [flagOf(p), nameOf(p), last[3] != null ? `${last[3]} m` : ''].filter(Boolean).join(' · ') : '' };
     }), showTracks, byAlt ? f => altColor(Math.floor((f[3] ?? 0) / 250) * 250 + 125) : null);
   }
   if (state.sel) renderDetail();

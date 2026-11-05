@@ -108,5 +108,6 @@ function addPilotImages(map) {
   });
 }
 
-/** l'aile tourne avec sa route, le reste reste droit : rotation de l'icône (°), sur la carte */
-const iconRotation = (kind, crs) => (kind === 'air' && typeof crs === 'number' ? crs : 0);
+/** l'aile tourne avec sa route (°, sur la carte : elle tourne aussi avec la carte) ; null : droit à l'écran quoi que
+ *  fasse la carte (à pied, en voiture), jamais à l'envers */
+const iconRotation = (kind, crs) => (kind === 'air' ? (typeof crs === 'number' ? crs : 0) : null);

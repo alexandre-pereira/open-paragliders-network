@@ -110,7 +110,7 @@ class Air3d {
   }
 
   /** items : { id, label, color, sel, old, pts, icon?, rot? } (icon : canvas de icons.js à la place de la pastille,
-   *  rot : sa rotation sur la carte, °) ; segColor(fix) : couleur d'un morceau de trace, sinon celle du pilote */
+   *  rot : sa rotation sur la carte, °, null ou absente : droite à l'écran) ; segColor(fix) : couleur d'un morceau de trace, sinon celle du pilote */
   setData(items, showTracks, segColor) {
     this.items = items; this.showTracks = showTracks; this.segColor = segColor;
     if (this.on) this.build();
@@ -170,7 +170,7 @@ class Air3d {
       const [r, gr, b] = rgb(p.color);
       // une icône (icons.js) à la place de la pastille : dessinée avec les noms, par-dessus le relief comme elle
       if (!p.icon) dots.push(last[0] - this.ox, last[1] - this.oy, last[2], p.sel ? 18 : 14, r, gr, b, p.old ? 0.6 : 1);
-      this.pilots.push({ id: p.id, label: p.label, sel: p.sel, old: p.old, at: last, world, icon: p.icon, rot: p.rot ?? 0 });
+      this.pilots.push({ id: p.id, label: p.label, sel: p.sel, old: p.old, at: last, world, icon: p.icon, rot: p.rot ?? null });
     }
     // envoyés au processeur graphique dans render() seulement : MapLibre garde en mémoire l'état de WebGL (tampon lié…)
     // et ne le relit qu'après le dessin d'une couche à part. Changé ici, entre deux images, l'image suivante dessinait ses
@@ -245,7 +245,8 @@ class Air3d {
       if (!s || s.x < -40 || s.x > W + 40 || s.y < -40 || s.y > H + 40) continue;
       const size = p.icon.width / 2;
       cx.globalAlpha = p.old ? 0.6 : 1;
-      cx.save(); cx.translate(s.x, s.y); cx.rotate(((p.rot - bearing) * Math.PI) / 180);
+      cx.save(); cx.translate(s.x, s.y);
+      if (p.rot !== null) cx.rotate(((p.rot - bearing) * Math.PI) / 180);
       cx.drawImage(p.icon, -size / 2, -size / 2, size, size);
       cx.restore();
     }
