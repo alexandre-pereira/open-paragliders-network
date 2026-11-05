@@ -173,6 +173,38 @@ test('SOS : un abonné arrivé longtemps après l’alerte la reçoit quand mêm
   assert.equal(late('5,45,7,47', 0), undefined);
 });
 
+test('au sol (gnd) : privé, seulement au lien de suivi ; public en SOS', () => {
+  const { svc, tick, at } = make();
+  const dev = { device: 'pilote-sol1', secret: SECRET };
+  const token = 'jeton-de-suivi-0123456789abc';
+  svc.share({ ...dev, token });
+  // au déco puis en vol puis posé : le logiciel marque les points au sol
+  const ground = (t0: number, n: number, lat: number, lon: number) => Array.from({ length: n }, (_, i) => [t0 + i * 3, lat, lon, 500, 0, null, 0, 1]);
+  const t0 = at() - 900;
+  const A = svc.ingest({ ...dev, points: [...ground(t0, 20, 45.8, 6.0), ...flight(t0 + 60, 200), ...ground(t0 + 660, 30, 45.95, 6.3)] });
+  const pid = Number(A.pilot);
+  assert.equal(A.stored, 250);
+  assert.equal(svc.live.pilots.get(pid)!.track.length, 200, 'le direct n’a que le vol');
+  assert.equal(svc.live.last(pid)!.lat, 45.9);
+  const sub = newSub(svc, null, 3600, null, false);
+  const pts = svc.live.collect(sub, at(), { snapshot: true }).pilots.find(x => x.id === A.pilot)!.pts!;
+  assert.ok(pts.every(f => f[2] !== 6.0 && f[2] !== 6.3), 'aucun abonné ne voit le pilote au sol');
+  tick(60);
+  svc.dayMap.refresh(at());
+  assert.ok(svc.mapPilot(pid, null).pts.every(f => f[2] !== 6.0 && f[2] !== 6.3), 'la carte publique non plus');
+  assert.equal(svc.mapList().pilots.find(x => x.id === A.pilot)!.last[2], 6.1 + 199 * 0.0005);
+  const link = svc.shared(token, null).pts;
+  assert.ok(link.some(f => f[2] === 6.0) && link.some(f => f[2] === 6.3), 'le lien de suivi voit tout');
+  assert.equal(A.last, t0 + 660 + 29 * 3);
+
+  // en SOS : son dernier point au sol devient l'endroit de l'alerte, et ses points suivants sont publics
+  svc.setStatus({ ...dev, state: 'sos' });
+  assert.equal(svc.live.pilots.get(pid)!.profile.status!.lon, 6.3);
+  svc.ingest({ ...dev, points: ground(at(), 2, 45.96, 6.31) });
+  assert.equal(svc.live.last(pid)!.lon, 6.31);
+  assert.ok(svc.sosList().pilots[0].pts.some(f => f[2] === 6.3), 'la page SOS montre sa trace au sol');
+});
+
 test('curseur trop vieux : image complète', () => {
   const { svc, tick, at } = make({ LIVE_WINDOW_MIN: '5' });
   svc.ingest({ device: 'pilote-old1', secret: SECRET, points: [[at(), 45.9, 6.1]] });

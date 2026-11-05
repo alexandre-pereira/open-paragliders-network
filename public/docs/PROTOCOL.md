@@ -81,9 +81,16 @@ On the wire a fix is a compact array:
 | 4 | `spd` | m/s | ground speed, or `null` |
 | 5 | `crs` | ° true | track, or `null` |
 | 6 | `vz` | m/s | vertical speed, or `null` |
+| 7 | `gnd` | 1 | optional, upload only: `1` when your app knows the pilot is **on the ground** (not taken off yet, or landed). Leave it out in flight or when you don't know |
 
-Uploads may also use objects: `{ "t": …, "lat": …, "lon": …, "alt": …, "spd": …, "crs": …, "vz": … }` (aliases:
+Uploads may also use objects: `{ "t": …, "lat": …, "lon": …, "alt": …, "spd": …, "crs": …, "vz": …, "gnd": 1 }` (aliases:
 `ts`, `time`, `lng`, `speed`, `course`, `track`, `vspeed`, `vario`).
+
+**Ground fixes are private.** A fix sent with `gnd: 1` is stored but goes only to the pilot's tracking link (§6): no
+subscriber, no public map (§11) and no live view ever gets it, so a pilot sharing from take-off (or from home) does not
+publish where they wait. While the pilot is in `sos` (§7) their fixes are public whatever `gnd` says, and the alert
+takes their last fix, ground ones included, when it gives no position. Send ground fixes rather than nothing: the
+family following the link sees the pilot before take-off and after landing. Fixes are always sent back without `gnd`.
 
 A fix is rejected (counted in `bad`) when its time is more than 2 min in the future or older than the history
 (`retentionH`, 72 h), or its position is impossible (including 0,0). One fix per pilot per second: a second fix with
@@ -313,7 +320,7 @@ The same paths are also served under `/lt24/`.
 
 Each pilot can have one private link for their family and friends, who need no app and no account:
 `https://<server>/p/<token>` opens a live map of that pilot alone, with everything the server keeps (72 h) split into
-flights. The link is permanent until the pilot replaces it.
+flights, ground fixes (`gnd`, see Fix in §1) included: the link is the only place they show. The link is permanent until the pilot replaces it.
 
 ```
 POST /api/v1/share
@@ -466,7 +473,7 @@ the day are on the public map unless `public` is `false`, and that « needs help
 `https://<server>/` is a public map of the day, like XContest Live: anyone can watch, with no app and no key. It shows
 each pilot whose profile does not say `public: false`, with **their last flight of the day** only: the day is the solar
 day where the pilot is (midnight by the sun at their longitude). A pilot on the ground who has not flown yet stays on it
-for 30 min after their last fix. Earlier flights stay on the tracking link (§6).
+for 30 min after their last fix, unless their app marks those fixes `gnd` (then they show only on the tracking link). Earlier flights stay on the tracking link (§6).
 
 **Flights.** A track is cut into flights where the pilot stopped on the ground (slower than 2.5 m/s for 5 min at the
 same height, or walking slowly up or down), or where it has a hole: 10 min when the pilot was slow on either side,

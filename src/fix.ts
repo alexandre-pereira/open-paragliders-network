@@ -5,7 +5,9 @@
 //   lat  latitude WGS84 (°), lon longitude (°)
 //   alt  altitude GPS au-dessus du niveau de la mer (m) ou null
 //   spd  vitesse sol (m/s) ou null, crs route vraie (°) ou null, vz vitesse verticale (m/s) ou null
-// Un objet est accepté aussi : { t|ts|time, lat, lon|lng, alt, spd|speed, crs|course|track, vz|vspeed|vario }.
+//   gnd  facultatif : 1 = le logiciel sait le pilote au sol (pas encore décollé, ou posé). Un tel point reste privé : il
+//        ne va qu'au lien de suivi du pilote, ni au direct ni à la carte publique, sauf pilote en SOS
+// Un objet est accepté aussi : { t|ts|time, lat, lon|lng, alt, spd|speed, crs|course|track, vz|vspeed|vario, gnd }.
 
 export interface Fix {
   /** numéro d'ordre d'arrivée sur le serveur, unique et croissant (curseur des abonnés) */
@@ -18,6 +20,8 @@ export interface Fix {
   spd: number | null;
   crs: number | null;
   vz: number | null;
+  /** au sol selon le logiciel : point privé (lien de suivi seulement) */
+  gnd?: boolean;
   /** heure de réception par le serveur (s) */
   rx: number;
 }
@@ -44,16 +48,16 @@ const round = (v: number, d: number) => { const k = 10 ** d; return Math.round(v
  * Heure en millisecondes acceptée (convertie).
  */
 export function parseFix(raw: unknown, nowS: number, oldestS: number): NewFix | null {
-  let ts: number | null, lat: number | null, lon: number | null, alt: unknown, spd: unknown, crs: unknown, vz: unknown;
+  let ts: number | null, lat: number | null, lon: number | null, alt: unknown, spd: unknown, crs: unknown, vz: unknown, gnd: unknown;
   if (Array.isArray(raw)) {
     [ts, lat, lon] = [n(raw[0]), n(raw[1]), n(raw[2])];
-    [alt, spd, crs, vz] = [raw[3], raw[4], raw[5], raw[6]];
+    [alt, spd, crs, vz, gnd] = [raw[3], raw[4], raw[5], raw[6], raw[7]];
   } else if (raw && typeof raw === 'object') {
     const o = raw as Record<string, unknown>;
     ts = n(o.t ?? o.ts ?? o.time);
     lat = n(o.lat);
     lon = n(o.lon ?? o.lng);
-    alt = o.alt; spd = o.spd ?? o.speed; crs = o.crs ?? o.course ?? o.track; vz = o.vz ?? o.vspeed ?? o.vario;
+    alt = o.alt; spd = o.spd ?? o.speed; crs = o.crs ?? o.course ?? o.track; vz = o.vz ?? o.vspeed ?? o.vario; gnd = o.gnd;
   } else return null;
   if (ts === null || lat === null || lon === null) return null;
   if (ts > 1e11) ts /= 1000; // millisecondes
@@ -66,6 +70,7 @@ export function parseFix(raw: unknown, nowS: number, oldestS: number): NewFix | 
   return {
     ts, lat: round(lat, 6), lon: round(lon, 6),
     alt: a === null ? null : round(a, 1), spd: s === null ? null : round(s, 2), crs: c === null ? null : round(c, 1), vz: v === null ? null : round(v, 2),
+    ...(gnd === 1 || gnd === true ? { gnd: true } : {}),
   };
 }
 

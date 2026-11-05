@@ -105,6 +105,11 @@ queue.push([time, lat, lon, altitude, groundSpeed, track, verticalSpeed]);
 | 4 | ground speed | m/s | or `null` |
 | 5 | track | ° true | or `null` |
 | 6 | vertical speed | m/s | or `null` |
+| 7 | on the ground | `1` | optional: add it when your app knows the pilot has not taken off yet or has landed |
+
+Fixes marked on the ground (`1` in position 7) stay private: only the pilot's tracking link shows them, never the
+public map nor other pilots' apps (unless the pilot calls for help). So you can share from the moment the app starts
+without publishing where the pilot waits.
 
 **Remove fixes from the queue only when the server has answered.** Sending a fix twice is harmless: the server keeps one
 per pilot per second. So a lost answer costs nothing, and a long backlog goes out in a few requests.

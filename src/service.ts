@@ -150,13 +150,17 @@ export class Service {
       seen.add(f.ts); good.push(f);
     }
     good.sort((a, b) => a.ts - b.ts);
+    // en SOS, sa position au sol est publique : ceux qui peuvent l'aider la voient
+    if (this.live.pilots.get(p.pid)?.profile.status?.state === 'sos') for (const f of good) delete f.gnd;
     const stored = good.length ? this.store.insertFixes(p.pid, good, Math.floor(nowS)) : [];
     dup += good.length - stored.length;
-    this.live.add(p.pid, stored);
-    this.dayMap.note(p.pid, stored);
+    // un point au sol reste privé : ni au direct ni à la carte publique, seulement au lien de suivi (lu dans la base)
+    const shown = stored.filter(f => !f.gnd);
+    this.live.add(p.pid, shown);
+    this.dayMap.note(p.pid, shown);
     if (Math.floor(nowS) - p.seen >= 60) { this.store.touch(p.pid, Math.floor(nowS)); p.seen = Math.floor(nowS); }
     if (stored.length) this.onFixes?.();
-    return { ok: true, pilot: String(p.pid), stored: stored.length, dup, bad, last: (this.live.last(p.pid) ?? this.store.lastFix(p.pid))?.ts ?? null };
+    return { ok: true, pilot: String(p.pid), stored: stored.length, dup, bad, last: this.store.lastFix(p.pid, true)?.ts ?? null };
   }
 
   /** envoi complet : identifiants, profil facultatif, points */
@@ -197,7 +201,8 @@ export class Service {
       return { ok: true as const, pilot: String(p.pid) };
     }
     const num = (v: unknown, max: number) => (typeof v === 'number' && Number.isFinite(v) && Math.abs(v) <= max ? v : null);
-    const last = this.live.last(p.pid) ?? this.store.lastFix(p.pid);
+    // en SOS, le dernier point même au sol (privé jusque-là) : là où il faut aller
+    const last = state === 'sos' ? this.store.lastFix(p.pid, true) : this.live.last(p.pid) ?? this.store.lastFix(p.pid);
     const lat = num(body.lat, 90), lon = num(body.lon, 180), spot = lat !== null && lon !== null, nowS = Math.floor(this.now());
     const t = typeof body.t === 'number' && body.t > nowS - this.cfg.retentionH * 3600 && body.t < nowS + 120 ? Math.floor(body.t) : nowS;
     const next: PilotStatus = { state, t, lat: spot ? lat : last?.lat ?? null, lon: spot ? lon : last?.lon ?? null, alt: spot ? num(body.alt, 12000) : last?.alt ?? null };
@@ -223,7 +228,7 @@ export class Service {
       const s = p.profile.status;
       if (p.blocked || s?.state !== 'sos') continue;
       const { first, last, brand, wing, type } = p.profile;
-      pilots.push({ p: { first, last, brand, wing, type }, t: s.t, lat: s.lat, lon: s.lon, alt: s.alt, pts: this.store.track(p.pid, s.t - SOS_TRAIL_S, nowS + 120, 5000, SHARED_STEP).map(wire) });
+      pilots.push({ p: { first, last, brand, wing, type }, t: s.t, lat: s.lat, lon: s.lon, alt: s.alt, pts: this.store.track(p.pid, s.t - SOS_TRAIL_S, nowS + 120, 5000, SHARED_STEP, true).map(wire) });
     }
     return { now: nowS, pilots: pilots.sort((a, b) => b.t - a.t).slice(0, MAX_SOS) };
   }
@@ -239,7 +244,7 @@ export class Service {
     const nowS = Math.floor(this.now()), oldest = this.oldest();
     const after = since !== null && since !== '' && Number.isFinite(Number(since)) ? Number(since) + 1 : null;
     const { status, ...who } = publicProfile(p.profile);
-    return { p: who, ...(status ? { status } : {}), now: nowS, pts: (after === null ? this.store.trackThin(pid, oldest, nowS + 120, SHARED_STEP) : this.store.track(pid, after, nowS + 120)).map(wire) };
+    return { p: who, ...(status ? { status } : {}), now: nowS, pts: (after === null ? this.store.trackThin(pid, oldest, nowS + 120, SHARED_STEP, true) : this.store.track(pid, after, nowS + 120, 100000, 0, true)).map(wire) };
   }
 
   /** le pilote efface tout ce que le serveur a de lui */

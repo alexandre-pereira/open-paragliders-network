@@ -48,7 +48,8 @@ CREATE TABLE IF NOT EXISTS points (
   spd REAL,
   crs REAL,
   vz REAL,
-  rx INTEGER NOT NULL
+  rx INTEGER NOT NULL,
+  gnd INTEGER NOT NULL DEFAULT 0
 );
 CREATE UNIQUE INDEX IF NOT EXISTS points_pid_ts ON points (pid, ts);
 CREATE INDEX IF NOT EXISTS points_ts ON points (ts);
@@ -114,6 +115,7 @@ const toPilot = (r: Row): PilotRow => ({
 const toFix = (r: Row): Fix => ({
   seq: r.seq as number, pid: r.pid as number, ts: r.ts as number, lat: r.lat as number, lon: r.lon as number,
   alt: r.alt as number | null, spd: r.spd as number | null, crs: r.crs as number | null, vz: r.vz as number | null, rx: r.rx as number,
+  ...(r.gnd ? { gnd: true } : {}),
 });
 
 /** garde un point tous les `step` secondes au plus, toujours le dernier */
@@ -145,6 +147,8 @@ export class Store {
     if (!cols.includes('ids')) this.db.exec("ALTER TABLE pilots ADD COLUMN ids TEXT NOT NULL DEFAULT '{}'");
     if (!cols.includes('brand')) this.db.exec("ALTER TABLE pilots ADD COLUMN brand TEXT NOT NULL DEFAULT ''");
     if (!cols.includes('pub')) this.db.exec('ALTER TABLE pilots ADD COLUMN pub INTEGER NOT NULL DEFAULT 1');
+    // d'avant les points au sol privés
+    if (!(this.db.prepare('PRAGMA table_info(points)').all() as Row[]).some(c => c.name === 'gnd')) this.db.exec('ALTER TABLE points ADD COLUMN gnd INTEGER NOT NULL DEFAULT 0');
     const p = (k: string, sql: string) => { this.st[k] = this.db.prepare(sql); };
     p('byDevice', 'SELECT * FROM pilots WHERE device = ?');
     p('byId', 'SELECT * FROM pilots WHERE pid = ?');
@@ -156,15 +160,20 @@ export class Store {
     p('delPoints', 'DELETE FROM points WHERE pid = ?');
     p('delPilot', 'DELETE FROM pilots WHERE pid = ?');
     p('delLt24', 'DELETE FROM lt24 WHERE pid = ?');
-    p('insert', `INSERT OR IGNORE INTO points (pid, ts, lat, lon, alt, spd, crs, vz, rx) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING seq`);
-    p('recent', 'SELECT * FROM points WHERE ts >= ? ORDER BY seq');
-    p('track', 'SELECT * FROM points WHERE pid = ? AND ts >= ? AND ts <= ? ORDER BY ts LIMIT ?');
+    p('insert', `INSERT OR IGNORE INTO points (pid, ts, lat, lon, alt, spd, crs, vz, rx, gnd) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING seq`);
+    // les points au sol (gnd = 1) sont privés : seules les lectures « All » (lien de suivi) les prennent
+    p('recent', 'SELECT * FROM points WHERE ts >= ? AND gnd = 0 ORDER BY seq');
+    p('track', 'SELECT * FROM points WHERE pid = ? AND ts >= ? AND ts <= ? AND gnd = 0 ORDER BY ts LIMIT ?');
+    p('trackAll', 'SELECT * FROM points WHERE pid = ? AND ts >= ? AND ts <= ? ORDER BY ts LIMIT ?');
     // min(ts) : SQLite donne les autres colonnes de la même ligne
-    p('thin', 'SELECT seq, pid, min(ts) AS ts, lat, lon, alt, spd, crs, vz, rx FROM points WHERE pid = ? AND ts >= ? AND ts <= ? GROUP BY ts / CAST(? AS INTEGER) ORDER BY ts');
-    p('lastIn', 'SELECT * FROM points WHERE pid = ? AND ts >= ? AND ts <= ? ORDER BY ts DESC LIMIT 1');
-    p('range','SELECT * FROM points WHERE ts >= ? AND ts <= ? ORDER BY pid, ts');
-    p('stats', `SELECT pid, count(*) AS n, min(ts) AS t0, max(ts) AS t1 FROM points WHERE ts >= ? AND ts <= ? GROUP BY pid`);
-    p('lastFix', 'SELECT * FROM points WHERE pid = ? ORDER BY ts DESC LIMIT 1');
+    p('thin', 'SELECT seq, pid, min(ts) AS ts, lat, lon, alt, spd, crs, vz, rx, gnd FROM points WHERE pid = ? AND ts >= ? AND ts <= ? AND gnd = 0 GROUP BY ts / CAST(? AS INTEGER) ORDER BY ts');
+    p('thinAll', 'SELECT seq, pid, min(ts) AS ts, lat, lon, alt, spd, crs, vz, rx, gnd FROM points WHERE pid = ? AND ts >= ? AND ts <= ? GROUP BY ts / CAST(? AS INTEGER) ORDER BY ts');
+    p('lastIn', 'SELECT * FROM points WHERE pid = ? AND ts >= ? AND ts <= ? AND gnd = 0 ORDER BY ts DESC LIMIT 1');
+    p('lastInAll', 'SELECT * FROM points WHERE pid = ? AND ts >= ? AND ts <= ? ORDER BY ts DESC LIMIT 1');
+    p('range','SELECT * FROM points WHERE ts >= ? AND ts <= ? AND gnd = 0 ORDER BY pid, ts');
+    p('stats', `SELECT pid, count(*) AS n, min(ts) AS t0, max(ts) AS t1 FROM points WHERE ts >= ? AND ts <= ? AND gnd = 0 GROUP BY pid`);
+    p('lastFix', 'SELECT * FROM points WHERE pid = ? AND gnd = 0 ORDER BY ts DESC LIMIT 1');
+    p('lastFixAll', 'SELECT * FROM points WHERE pid = ? ORDER BY ts DESC LIMIT 1');
     p('maxSeq', "SELECT coalesce((SELECT seq FROM sqlite_sequence WHERE name = 'points'), 0) AS s");
     p('count', 'SELECT count(*) AS n, min(ts) AS t0 FROM points');
     p('purge', 'DELETE FROM points WHERE seq IN (SELECT seq FROM points WHERE ts < ? LIMIT 20000)');
@@ -256,7 +265,7 @@ export class Store {
     const out: Fix[] = [];
     this.tx(() => {
       for (const f of fixes) {
-        const r = this.st.insert.get(pid, f.ts, f.lat, f.lon, f.alt, f.spd, f.crs, f.vz, rx) as Row | undefined;
+        const r = this.st.insert.get(pid, f.ts, f.lat, f.lon, f.alt, f.spd, f.crs, f.vz, rx, f.gnd ? 1 : 0) as Row | undefined;
         if (r) out.push({ ...f, seq: r.seq as number, pid, rx });
       }
     });
@@ -266,16 +275,17 @@ export class Store {
   /** les points depuis `sinceTs`, dans l'ordre d'arrivée (rechargement de la mémoire au démarrage) */
   recent(sinceTs: number): Fix[] { return (this.st.recent.all(sinceTs) as Row[]).map(toFix); }
 
-  track(pid: number, from: number, to: number, limit = 100000, step = 0): Fix[] {
-    return thin((this.st.track.all(pid, from, to, limit) as Row[]).map(toFix), step);
+  /** `all` : les points au sol privés aussi (lien de suivi) */
+  track(pid: number, from: number, to: number, limit = 100000, step = 0, all = false): Fix[] {
+    return thin(((all ? this.st.trackAll : this.st.track).all(pid, from, to, limit) as Row[]).map(toFix), step);
   }
 
   /** la trace allégée par la base elle-même (un point par tranche de `step` s, le premier de chacune) et toujours le
    *  dernier point : une longue période ne passe pas toute par la mémoire */
-  trackThin(pid: number, from: number, to: number, step: number): Fix[] {
-    if (step <= 1) return this.track(pid, from, to);
-    const out = (this.st.thin.all(pid, from, to, Math.floor(step)) as Row[]).map(toFix);
-    const last = this.st.lastIn.get(pid, from, to) as Row | undefined;
+  trackThin(pid: number, from: number, to: number, step: number, all = false): Fix[] {
+    if (step <= 1) return this.track(pid, from, to, 100000, 0, all);
+    const out = ((all ? this.st.thinAll : this.st.thin).all(pid, from, to, Math.floor(step)) as Row[]).map(toFix);
+    const last = (all ? this.st.lastInAll : this.st.lastIn).get(pid, from, to) as Row | undefined;
     if (last && out.at(-1)?.ts !== last.ts) out.push(toFix(last));
     return out;
   }
@@ -297,7 +307,7 @@ export class Store {
   stats(from: number, to: number): { pid: number; n: number; t0: number; t1: number }[] {
     return this.st.stats.all(from, to) as { pid: number; n: number; t0: number; t1: number }[];
   }
-  lastFix(pid: number): Fix | undefined { const r = this.st.lastFix.get(pid) as Row | undefined; return r && toFix(r); }
+  lastFix(pid: number, all = false): Fix | undefined { const r = (all ? this.st.lastFixAll : this.st.lastFix).get(pid) as Row | undefined; return r && toFix(r); }
   maxSeq(): number { return (this.st.maxSeq.get() as Row).s as number; }
   count(): { n: number; t0: number | null } { return this.st.count.get() as { n: number; t0: number | null }; }
 
