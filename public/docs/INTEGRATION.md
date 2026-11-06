@@ -255,7 +255,7 @@ await post('/api/v1/status', { device, secret, state: 'sos', lat, lon, alt });
 
 | `state` | Meaning | Who sees it |
 |---|---|---|
-| `sos` | Landed, needs help | **Everyone**, on the public page `https://<server>/sos`, and the apps subscribed to the pilot's area |
+| `sos` | Landed, needs help | **Everyone**, on the public page `https://<server>/sos` and the public map (even a pilot who has not taken off or keeps off that map), and the apps subscribed to the pilot's area |
 | `ok` | Landed OK. Cancels `sos` | The pilot's track and tracking link, and the apps following that pilot |
 | `none` | Nothing to say: clears the state. Send it after a false alarm or at the next take-off | |
 
@@ -270,6 +270,9 @@ An app that connects later gets it too, however old the pilot's last fix: a pilo
 without one, last fix) is in your area comes with the snapshot, with only their last fix — or no `pts` at all when it is
 older than the live window. Handle a pilot with a profile and no fixes. `GET /api/v1/sos` lists every SOS of the world
 with its recent track, without a key.
+
+**While the alert is on, send every fix**, even if your pilot does not share their position otherwise and whatever
+your data saving rules: they are public then, and helpers follow them on the public map and on `/sos`.
 
 Four rules, because this one can hurt someone:
 

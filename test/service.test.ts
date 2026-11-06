@@ -212,6 +212,35 @@ test('au sol (gnd) : privé, seulement au lien de suivi ; public en SOS', () => 
   assert.ok(svc.sosList().pilots[0].pts.some(f => f[2] === 6.3), 'la page SOS montre sa trace au sol');
 });
 
+test('SOS sans avoir décollé : sur la carte publique tout de suite, trace au sol comprise, même hors carte par choix', () => {
+  const { svc, tick, at } = make();
+  const dev = { device: 'pilote-sol2', secret: SECRET };
+  const ground = (t0: number, n: number, lon: number) => Array.from({ length: n }, (_, i) => [t0 + i * 3, 45.8, lon + i * 0.0001, 500, 0, null, 0, 1]);
+  const A = svc.ingest({ ...dev, pilot: { first: 'Léa', public: false }, points: ground(at() - 600, 20, 6.0) });
+  const pid = Number(A.pilot);
+  tick(5);
+  svc.dayMap.refresh(at());
+  assert.equal(svc.mapList().pilots.find(x => x.id === A.pilot), undefined, 'au sol sans alerte : pas sur la carte');
+  assert.throws(() => svc.mapPilot(pid, null), /not-on-map/);
+  svc.setStatus({ ...dev, state: 'sos' });
+  const e = svc.mapList().pilots.find(x => x.id === A.pilot) as { last: number[]; tail?: number[][]; ground?: string; p: { status?: { state: string } } };
+  assert.ok(e, 'en alerte : sur la carte, sans attendre un nouveau point');
+  assert.equal(e.p.status?.state, 'sos');
+  assert.equal(e.last[2], 6.0019, 'à son dernier point au sol');
+  assert.equal(e.ground, 'foot');
+  assert.ok((e.tail?.length ?? 0) > 1, 'avec sa trace au sol');
+  const d = svc.mapPilot(pid, null);
+  assert.ok(d.pts.some(f => f[2] === 6.0), 'la fiche montre sa trace au sol');
+  // ses points suivants arrivent : toujours une seule fois sur la carte
+  svc.ingest({ ...dev, points: ground(at(), 2, 6.01) });
+  svc.dayMap.refresh(at());
+  assert.equal(svc.mapList().pilots.filter(x => x.id === A.pilot).length, 1);
+  // l'alerte annulée : il redevient privé
+  svc.setStatus({ ...dev, state: 'none' });
+  assert.equal(svc.mapList().pilots.find(x => x.id === A.pilot), undefined);
+  assert.throws(() => svc.mapPilot(pid, null), /not-on-map/);
+});
+
 test('curseur trop vieux : image complète', () => {
   const { svc, tick, at } = make({ LIVE_WINDOW_MIN: '5' });
   svc.ingest({ device: 'pilote-old1', secret: SECRET, points: [[at(), 45.9, 6.1]] });

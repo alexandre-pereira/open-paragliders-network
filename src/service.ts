@@ -267,21 +267,38 @@ export class Service {
    */
   mapList() {
     const nowS = Math.floor(this.now());
-    const pilots = this.dayMap.list(nowS, pid => this.onMap(pid)).map(x => ({ ...x, p: publicProfile(this.live.pilots.get(Number(x.id))!.profile) }));
+    const pilots: MapEntry[] = this.dayMap.list(nowS, pid => this.onMap(pid) || this.inSos(pid)).map(x => ({ ...x, p: publicProfile(this.live.pilots.get(Number(x.id))!.profile) }));
+    // un « posé pas OK » y est toujours, même sans vol ni point public (pas encore décollé) ou hors de la carte par
+    // choix : là où il est (son dernier point, même au sol), avec sa trace d'avant l'alerte, comme la page des alertes
+    const listed = new Set(pilots.map(x => x.id));
+    for (const p of this.live.pilots.values()) {
+      const s = p.profile.status;
+      if (p.blocked || s?.state !== 'sos' || listed.has(String(p.pid))) continue;
+      const fix = this.store.lastFix(p.pid, true);
+      const last = fix && fix.ts >= s.t - SOS_TRAIL_S ? wire(fix) : s.lat !== null && s.lon !== null ? wire({ ts: s.t, lat: s.lat, lon: s.lon, alt: s.alt, spd: null, crs: null, vz: null }) : fix ? wire(fix) : null;
+      if (!last) continue;
+      const tail = this.store.track(p.pid, s.t - SOS_TRAIL_S, nowS + 120, 5000, SHARED_STEP, true).map(wire);
+      pilots.push({ id: String(p.pid), last, ...(tail.length > 1 ? { tail } : {}), ground: this.dayMap.groundOf(p.pid) ?? 'foot' as const, p: publicProfile(p.profile) });
+    }
     return { now: nowS, pilots };
   }
+
+  /** a dit « posé pas OK » et ne l'a pas annulé */
+  private inSos(pid: number) { const p = this.live.pilots.get(pid); return !!p && !p.blocked && p.profile.status?.state === 'sos'; }
 
   /**
    * un pilote de la carte : son dernier vol entier (un point par MAP_STEP s), puis ce qui a suivi (posé, il marche) ;
    * `since` : les points d'après cette heure. `t0` change quand un nouveau vol commence : la page repart de zéro
    */
   mapPilot(id: number, since: string | null) {
-    const nowS = Math.floor(this.now()), f = this.onMap(id) ? this.dayMap.flightOf(id, nowS) : null;
-    if (!f) throw new HttpError(404, 'not-on-map');
-    const t0 = f.flight?.t0 ?? f.last.ts;
+    const nowS = Math.floor(this.now()), sos = this.inSos(id), f = this.onMap(id) || sos ? this.dayMap.flightOf(id, nowS) : null;
+    if (!f && !sos) throw new HttpError(404, 'not-on-map');
+    // en alerte : aussi ses points au sol, et au moins la demi-heure d'avant l'alerte
+    const alertAt = sos ? this.live.pilots.get(id)!.profile.status!.t - SOS_TRAIL_S : Infinity;
+    const t0 = Math.min(f ? f.flight?.t0 ?? f.last.ts : Infinity, alertAt);
     const after = since !== null && since !== '' && Number.isFinite(Number(since)) ? Number(since) + 1 : null;
-    const pts = (after === null ? this.store.trackThin(id, t0, nowS + 120, MAP_STEP) : this.store.track(id, Math.max(t0, after), nowS + 120)).map(wire);
-    return { id: String(id), p: publicProfile(this.live.pilots.get(id)!.profile), now: nowS, t0, ...(f.flight ? { t1: f.flight.t1 } : {}), pts };
+    const pts = (after === null ? this.store.trackThin(id, t0, nowS + 120, MAP_STEP, sos) : this.store.track(id, Math.max(t0, after), nowS + 120, 100000, 0, sos)).map(wire);
+    return { id: String(id), p: publicProfile(this.live.pilots.get(id)!.profile), now: nowS, t0, ...(f?.flight ? { t1: f.flight.t1 } : {}), pts };
   }
 
   block(pid: number, blocked: boolean, reason = '') {
@@ -360,6 +377,9 @@ export class Service {
 }
 
 /** ce que la carte publique et le lien de suivi montrent d'un pilote */
+/** un pilote de la carte publique */
+type MapEntry = ReturnType<DayMap['list']>[number] & { p: ReturnType<typeof publicProfile> };
+
 export const publicProfile = ({ first, last, brand, wing, type, status }: Profile) => ({ first, last, brand, wing, type, ...(status ? { status } : {}) });
 
 export const profileOf = (p: PilotRow): Profile => ({ first: p.first, last: p.last, brand: p.brand, wing: p.wing, type: p.type, app: p.app, ...(p.ids ? { ids: p.ids } : {}), ...(p.public === false ? { public: false as const } : {}) });

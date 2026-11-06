@@ -478,6 +478,12 @@ each pilot whose profile does not say `public: false`, with **their last flight 
 day where the pilot is (midnight by the sun at their longitude). A pilot on the ground who has not flown yet stays on it
 for 30 min after their last fix, unless their app marks those fixes `gnd` (then they show only on the tracking link). Earlier flights stay on the tracking link (§6).
 
+**A pilot in `sos`** (§7) is always on it, as soon as the alert arrives and until it is called off: even with
+`public: false`, even if they have not taken off (only `gnd` fixes so far, or none: then at the position sent with
+the alert). Their `last` is their latest fix, ground fixes included, and `tail` their track from 30 min before the
+alert, as on `/sos`. Keep sending every fix while the alert is on, even if the pilot does not share their position
+otherwise: helpers follow them.
+
 **Flights.** A track is cut into flights where the pilot stopped on the ground (slower than 2.5 m/s for 5 min at the
 same height, or walking slowly up or down), or where it has a hole: 10 min when the pilot was slow on either side,
 45 min in any case. A piece with less than a minute faster than 4 m/s is not a flight (waiting at take-off, walking).
@@ -520,4 +526,5 @@ GET /api/v1/map/42?since=1793440057
 
 `{ "id", "p", "now", "t0", "t1", "pts" }`: the whole last flight from `t0` (one fix per 2 s) and what followed it (the
 pilot walking after landing); with `since`, every fix after it. A new `t0` means a new flight: start again without
-`since`. `404 not-on-map` for a pilot who is not on the map.
+`since`. For a pilot in `sos`, `t0` goes back to 30 min before the alert at least and `pts` include their ground fixes.
+`404 not-on-map` for a pilot who is not on the map.
