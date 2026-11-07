@@ -11,7 +11,7 @@ const T = fr ? {
   sorts: { km: 'Distance', fai: 'Triangle FAI', name: 'Nom', alt: 'Altitude', recent: 'Dernière position' },
   leagues: { xcontest: 'XContest', cfd: 'CFD (FFVL)' }, gaps: { xc20: 'écart < 20 %', xc5: 'écart < 5 %', cfd: 'écart ≤ 5 % ou 3 km' },
   count: '{n} pilotes aujourd’hui · {f} en vol', none: 'Personne n’a encore volé aujourd’hui.', noMatch: 'Aucun pilote ne correspond.',
-  flying: 'En vol', landed: 'Posé il y a {t}', lost: 'Dernière position il y a {t}', ground: 'Au sol, pas encore décollé', car: 'en voiture',
+  flying: 'En vol', landed: 'Posé il y a {t}', lost: 'Dernière position il y a {t}', seen: 'Dernière position à {h}, il y a {t}', ground: 'Au sol, pas encore décollé', car: 'en voiture',
   ok: 'POSÉ OK à {h}', sos: 'POSÉ PAS OK à {h} : besoin d’aide', sosShort: 'POSÉ PAS OK',
   alt: 'Altitude', vz: 'Vario', spd: 'Vitesse', dur: 'Vol', free: 'Distance libre', closedFai: 'Triangle FAI', closedFlat: 'Triangle plat', total: 'Points {r}',
   openFaiIf: 'FAI s’il boucle', openFlatIf: 'Plat s’il boucle', openFai: 'Triangle FAI', openFlat: 'Triangle plat', target: 'Triangle visé',
@@ -23,7 +23,7 @@ const T = fr ? {
   sorts: { km: 'Distance', fai: 'FAI triangle', name: 'Name', alt: 'Altitude', recent: 'Last position' },
   leagues: { xcontest: 'XContest', cfd: 'CFD (FFVL)' }, gaps: { xc20: 'gap < 20 %', xc5: 'gap < 5 %', cfd: 'gap ≤ 5 % or 3 km' },
   count: '{n} pilots today · {f} flying', none: 'Nobody has flown today yet.', noMatch: 'No pilot matches.',
-  flying: 'Flying', landed: 'Landed {t} ago', lost: 'Last position {t} ago', ground: 'On the ground, not taken off yet', car: 'driving',
+  flying: 'Flying', landed: 'Landed {t} ago', lost: 'Last position {t} ago', seen: 'Last position at {h}, {t} ago', ground: 'On the ground, not taken off yet', car: 'driving',
   ok: 'LANDED OK at {h}', sos: 'LANDED, NEEDS HELP at {h}', sosShort: 'NEEDS HELP',
   alt: 'Altitude', vz: 'Vario', spd: 'Speed', dur: 'Flight', free: 'Free distance', closedFai: 'FAI triangle', closedFlat: 'Flat triangle', total: '{r} points',
   openFaiIf: 'FAI if closed', openFlatIf: 'Flat if closed', openFai: 'FAI triangle', openFlat: 'Flat triangle', target: 'Target triangle',
@@ -67,6 +67,8 @@ const num = (v, d = 1) => v.toLocaleString(fr ? 'fr-FR' : 'en-GB', { minimumFrac
 const km = m => `${num(m / 1000, m < 100000 ? 1 : 0)} km`;
 const span = s => { s = Math.max(0, s); return s < 90 ? `${Math.round(s)} s` : s < 5400 ? `${Math.round(s / 60)} min` : `${Math.floor(s / 3600)} h ${String(Math.round((s % 3600) / 60)).padStart(2, '0')}`; };
 const hhmm = t => new Date(t * 1000).toLocaleTimeString(fr ? 'fr-FR' : 'en-GB', { hour: '2-digit', minute: '2-digit' });
+/** l'heure d'un point, à la seconde */
+const hms = t => new Date(t * 1000).toLocaleTimeString(fr ? 'fr-FR' : 'en-GB', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
 const flying = p => nowS() - p.last[0] <= FLYING_S && !!p.flight && p.last[0] - p.flight.t1 <= FLYING_S;
 /**
  * son icône : « foot » ou « car » quand son logiciel le dit au sol (`ground` du serveur), sinon en vol tant que son
@@ -422,12 +424,16 @@ function renderDetail() {
   const back = btn(`‹ ${T.back}`, unselect, 'back');
   back.title = T.backTip;
   const st = p.p?.status, kids = [btn('✕', unselect, 'icon close'), back, el('h2', { textContent: nameOf(p) }), el('div', { className: 'muted', textContent: wingOf(p) })];
-  if (st) kids.push(el('div', { className: `state ${st.state}`, textContent: T[st.state].replace('{h}', hhmm(st.t)) }));
+  // l'heure du dernier point reçu, à la seconde, et son âge, sous l'état ; « Dernière position il y a… » prend l'heure
+  const age = nowS() - last[0], seen = el('div', { className: 'muted', textContent: T.seen.replace('{h}', hms(last[0])).replace('{t}', span(age)) });
+  if (st) kids.push(el('div', { className: `state ${st.state}`, textContent: T[st.state].replace('{h}', hhmm(st.t)) }), seen);
   else {
     // posé : vu sur sa trace, ou dit par son logiciel (au sol, à pied ou en voiture)
-    const age = nowS() - last[0], kind = kindOf(p), up = s.t1 && (last[0] - s.t1 > FLYING_S || kind !== 'air');
-    const txt = !p.flight && !s.t1 ? T.ground : up ? T.landed.replace('{t}', span(nowS() - s.t1)) : age <= FLYING_S ? T.flying : T.lost.replace('{t}', span(age));
+    const kind = kindOf(p), up = s.t1 && (last[0] - s.t1 > FLYING_S || kind !== 'air');
+    const lost = (p.flight || s.t1) && !up && age > FLYING_S;
+    const txt = !p.flight && !s.t1 ? T.ground : up ? T.landed.replace('{t}', span(nowS() - s.t1)) : !lost ? T.flying : `${T.lost.replace('{t}', span(age))} (${hms(last[0])})`;
     kids.push(el('div', { className: 'state', textContent: kind === 'car' ? `${txt} · ${T.car}` : txt }));
+    if (!lost) kids.push(seen);
   }
   const fig = (v, k) => el('div', {}, el('b', { textContent: v }), el('span', { textContent: k }));
   const fp = flightPts(s), dur = fp.length > 1 ? fp[fp.length - 1][0] - fp[0][0] : 0;
