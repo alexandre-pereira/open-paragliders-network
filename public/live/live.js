@@ -496,6 +496,10 @@ function select(id, fit, push = true) {
   if (state.sel) clearTimeout(state.sel.timer);
   state.sel = { id, pts: null, t0: null, t1: null, score: null, timer: 0, fit };
   state.follow = false;
+  // la trace, le triangle et la zone du pilote d'avant partent tout de suite, pas quand celle du nouveau arrive
+  drawSel();
+  // choisi d'un clic (liste ou carte) : sa case « trace » se coche, sa trace reste quand on revient à la liste
+  if (push && !state.tails.has(id) && state.tails.size < TAILS_MAX) { state.tails.add(id); saveTails(); }
   const u = new URL(location.href);
   u.searchParams.set('p', id);
   if (push && !had && !history.state?.opnSel) history.pushState({ opnSel: true }, '', u);
