@@ -12,7 +12,7 @@ let token = '';
 try { token = sessionStorage.getItem('wsl.token') || ''; } catch { /* stockage fermé */ }
 
 const state = {
-  /** id → { id, p, blocked, pts: [[t, lat, lon, alt, spd, crs, vz]…] triés par heure } */
+  /** id → { id, p, blocked, pts: [[t, lat, lon, alt, spd, crs, vz, gnd?]…] triés par heure ; gnd = 1 : point au sol } */
   pilots: new Map(),
   /** id → { device, created, seen } (liste des pilotes) */
   meta: new Map(),
@@ -21,13 +21,26 @@ const state = {
   ws: null, wsTry: 0, wsTimer: null, pingAt: 0, pongAt: 0,
   /** id → « foot » | « car » : au sol selon son logiciel (GET admin/ground) */
   ground: {},
+  /** numéro du dernier point au sol reçu : le direct ne les envoie pas (privés), admin/ground?since les donne */
+  gseq: null,
 };
 const GROUND_EVERY = 15000;
 
 async function loadGround() {
   try {
-    const g = (await api('/admin/ground')).ground ?? {};
+    // en direct : aussi les points au sol arrivés depuis le dernier tour
+    const live = !state.custom && state.gseq !== null, my = loading;
+    const r = await api(live ? `/admin/ground?since=${state.gseq}` : '/admin/ground');
+    const g = r.ground ?? {};
     if (JSON.stringify(g) !== JSON.stringify(state.ground)) { state.ground = g; state.dirty = true; }
+    if (!live || my !== loading || state.custom) return;
+    state.gseq = r.gseq;
+    for (const u of r.pilots ?? []) {
+      let p = state.pilots.get(u.id);
+      if (!p) { p = { id: u.id, p: u.p, blocked: !!u.blocked, pts: [] }; state.pilots.set(u.id, p); }
+      merge(p, u.pts);
+      state.dirty = true;
+    }
   } catch { /* au prochain tour */ }
 }
 
@@ -82,12 +95,13 @@ const mapReady = new Promise(ok => map.on('load', ok));
 
 /**
  * son icône : au sol (« foot ») quand ses derniers points restent lents (moins de 2,5 m/s) à la même altitude (40 m)
- * depuis 5 min, ou lents et sans nouvelles depuis OLD_S ; sinon en vol. Le back-office n'a pas ses points privés au sol
- * (marqués par son logiciel), seulement l'état qu'ils disent (state.ground, lu toutes les GROUND_EVERY ms)
+ * depuis 5 min, ou lents et sans nouvelles depuis OLD_S ; sinon en vol. Au sol selon son logiciel : l'état
+ * qu'il dit (state.ground, lu toutes les GROUND_EVERY ms avec ses points au sol), ou son dernier point marqué au sol
  */
 function kindOf(p) {
   const pts = p.pts, last = pts[pts.length - 1];
   if (state.ground[p.id]) return state.ground[p.id];
+  if (last[7] === 1) return 'foot';
   if ((last[4] ?? 0) >= 2.5) return 'air';
   let i = pts.length - 1, lo = last[3] ?? 0, hi = lo;
   while (i > 0 && (pts[i - 1][4] ?? 0) < 2.5) { i--; lo = Math.min(lo, pts[i][3] ?? lo); hi = Math.max(hi, pts[i][3] ?? hi); }
@@ -308,7 +322,7 @@ async function load() {
     api(`/admin/pilots?from=${r.from}&to=${r.to + 60}`),
   ]);
   if (my !== loading) return;
-  state.from = r.from; state.to = r.to; state.seq = data.seq;
+  state.from = r.from; state.to = r.to; state.seq = data.seq; state.gseq = data.gseq ?? null;
   state.pilots.clear();
   for (const x of data.pilots) state.pilots.set(x.id, { id: x.id, p: x.p, blocked: !!x.blocked, pts: x.pts });
   state.meta = new Map(list.pilots.map(x => [x.id, x]));

@@ -86,8 +86,8 @@ On the wire a fix is a compact array:
 Uploads may also use objects: `{ "t": …, "lat": …, "lon": …, "alt": …, "spd": …, "crs": …, "vz": …, "gnd": 1 }` (aliases:
 `ts`, `time`, `lng`, `speed`, `course`, `track`, `vspeed`, `vario`).
 
-**Ground fixes are private.** A fix sent with `gnd: 1` is stored but goes only to the pilot's tracking link (§6): no
-subscriber, no public map (§11) and no live view ever gets it, so a pilot sharing from take-off (or from home) does not
+**Ground fixes are private.** A fix sent with `gnd: 1` is stored but goes only to the pilot's tracking link (§6) and to
+the server operator's password-protected back-office: no app subscriber, no public map (§11) and no live view ever gets it, so a pilot sharing from take-off (or from home) does not
 publish where they wait. While the pilot is in `sos` (§7) their fixes are public whatever `gnd` says, and the alert
 takes their last fix, ground ones included, when it gives no position. Send ground fixes rather than nothing: the
 family following the link sees the pilot before take-off and after landing. Fixes are sent back without `gnd`, except
@@ -321,7 +321,7 @@ The same paths are also served under `/lt24/`.
 
 Each pilot can have one private link for their family and friends, who need no app and no account:
 `https://<server>/p/<token>` opens a live map of that pilot alone, with everything the server keeps (72 h) split into
-flights, ground fixes (`gnd`, see Fix in §1) included: the link is the only place they show. The link is permanent until the pilot replaces it.
+flights, ground fixes (`gnd`, see Fix in §1) included: apart from the server operator's back-office, the link is the only place they show. The link is permanent until the pilot replaces it.
 The page draws the pilot flying (their wing, turned to their course), on foot or driving: driving is a ground fix run at
 8 m/s or more, twice within 5 min.
 

@@ -161,7 +161,7 @@ export class Store {
     p('delPilot', 'DELETE FROM pilots WHERE pid = ?');
     p('delLt24', 'DELETE FROM lt24 WHERE pid = ?');
     p('insert', `INSERT OR IGNORE INTO points (pid, ts, lat, lon, alt, spd, crs, vz, rx, gnd) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING seq`);
-    // les points au sol (gnd = 1) sont privés : seules les lectures « All » (lien de suivi) les prennent
+    // les points au sol (gnd = 1) sont privés : seules les lectures « All » (lien de suivi, back-office) les prennent
     p('recent', 'SELECT * FROM points WHERE ts >= ? AND gnd = 0 ORDER BY seq');
     p('track', 'SELECT * FROM points WHERE pid = ? AND ts >= ? AND ts <= ? AND gnd = 0 ORDER BY ts LIMIT ?');
     p('trackAll', 'SELECT * FROM points WHERE pid = ? AND ts >= ? AND ts <= ? ORDER BY ts LIMIT ?');
@@ -171,7 +171,10 @@ export class Store {
     p('lastIn', 'SELECT * FROM points WHERE pid = ? AND ts >= ? AND ts <= ? AND gnd = 0 ORDER BY ts DESC LIMIT 1');
     p('lastInAll', 'SELECT * FROM points WHERE pid = ? AND ts >= ? AND ts <= ? ORDER BY ts DESC LIMIT 1');
     p('range','SELECT * FROM points WHERE ts >= ? AND ts <= ? AND gnd = 0 ORDER BY pid, ts');
+    p('rangeAll','SELECT * FROM points WHERE ts >= ? AND ts <= ? ORDER BY pid, ts');
     p('stats', `SELECT pid, count(*) AS n, min(ts) AS t0, max(ts) AS t1 FROM points WHERE ts >= ? AND ts <= ? AND gnd = 0 GROUP BY pid`);
+    p('statsAll', `SELECT pid, count(*) AS n, min(ts) AS t0, max(ts) AS t1 FROM points WHERE ts >= ? AND ts <= ? GROUP BY pid`);
+    p('groundAfter', 'SELECT * FROM points WHERE seq > ? AND gnd = 1 ORDER BY seq LIMIT ?');
     p('lastFix', 'SELECT * FROM points WHERE pid = ? AND gnd = 0 ORDER BY ts DESC LIMIT 1');
     p('lastFixAll', 'SELECT * FROM points WHERE pid = ? ORDER BY ts DESC LIMIT 1');
     p('maxSeq', "SELECT coalesce((SELECT seq FROM sqlite_sequence WHERE name = 'points'), 0) AS s");
@@ -290,11 +293,12 @@ export class Store {
     return out;
   }
 
-  /** toutes les traces d'une période, allégées (un point par `step` s), `maxPoints` au plus en tout */
-  tracks(from: number, to: number, step: number, maxPoints = 1_000_000): Map<number, Fix[]> {
+  /** toutes les traces d'une période, allégées (un point par `step` s), `maxPoints` au plus en tout ; `all` : les points
+   *  au sol aussi (back-office) */
+  tracks(from: number, to: number, step: number, maxPoints = 1_000_000, all = false): Map<number, Fix[]> {
     const out = new Map<number, Fix[]>();
     let total = 0, cur: Fix[] = [], curPid = -1, last = -Infinity;
-    for (const r of this.st.range.iterate(from, to) as Iterable<Row>) {
+    for (const r of (all ? this.st.rangeAll : this.st.range).iterate(from, to) as Iterable<Row>) {
       const f = toFix(r);
       if (f.pid !== curPid) { curPid = f.pid; cur = []; out.set(curPid, cur); last = -Infinity; }
       if (f.ts - last >= step) { cur.push(f); last = f.ts; total++; }
@@ -304,9 +308,12 @@ export class Store {
     return out;
   }
 
-  stats(from: number, to: number): { pid: number; n: number; t0: number; t1: number }[] {
-    return this.st.stats.all(from, to) as { pid: number; n: number; t0: number; t1: number }[];
+  stats(from: number, to: number, all = false): { pid: number; n: number; t0: number; t1: number }[] {
+    return (all ? this.st.statsAll : this.st.stats).all(from, to) as { pid: number; n: number; t0: number; t1: number }[];
   }
+
+  /** les points au sol reçus après le numéro `seq` (back-office : le direct ne les envoie pas) */
+  groundAfter(seq: number, limit = 20000): Fix[] { return (this.st.groundAfter.all(seq, limit) as Row[]).map(toFix); }
   lastFix(pid: number, all = false): Fix | undefined { const r = (all ? this.st.lastFixAll : this.st.lastFix).get(pid) as Row | undefined; return r && toFix(r); }
   maxSeq(): number { return (this.st.maxSeq.get() as Row).s as number; }
   count(): { n: number; t0: number | null } { return this.st.count.get() as { n: number; t0: number | null }; }

@@ -339,6 +339,27 @@ test('back-office : mot de passe, traces, blocage', async () => {
   assert.equal((await fetch(base + '/admin/')).status, 200);
 });
 
+test('back-office : les pilotes au sol aussi (points gnd), en direct par admin/ground?since', async () => {
+  const h = { Authorization: `Bearer ${ADMIN}` };
+  const me = { device: 'bo-au-sol-1', secret: SECRET, pilot: { first: 'Gaël', last: 'Sol' } }, t = now() - 60;
+  const r = await (await post('/api/v1/points', { ...me, points: [[t, 45.7, 6.7, 1800, 0, 0, 0, 1]] })).json();
+  const tr = await (await get(`/api/v1/admin/tracks?from=${now() - 3600}`, h)).json();
+  assert.deepEqual(tr.pilots.find((p: any) => p.id === r.pilot)?.pts, [[t, 45.7, 6.7, 1800, 0, 0, 0, 1]], 'pas encore décollé : vu au back-office');
+  const list = await (await get(`/api/v1/admin/pilots?from=${now() - 3600}`, h)).json();
+  const row = list.pilots.find((p: any) => p.id === r.pilot);
+  assert.equal(row.n, 1);
+  assert.equal(row.last[0], t);
+  assert.equal((await (await get('/api/v1/live')).json()).pilots.find((p: any) => p.id === r.pilot), undefined, 'toujours privé ailleurs');
+  // la suite au sol, que le direct n'envoie pas
+  await post('/api/v1/points', { ...me, points: [[t + 30, 45.701, 6.7, 1800, 1, 0, 0, 1]] });
+  const g = await (await get(`/api/v1/admin/ground?since=${tr.gseq}`, h)).json();
+  assert.deepEqual(g.pilots.find((p: any) => p.id === r.pilot)?.pts, [[t + 30, 45.701, 6.7, 1800, 1, 0, 0, 1]]);
+  assert.equal(g.pilots.find((p: any) => p.id === r.pilot).p.first, 'Gaël');
+  assert.deepEqual((await (await get(`/api/v1/admin/ground?since=${g.gseq}`, h)).json()).pilots, []);
+  const one = await (await get(`/api/v1/admin/track/${r.pilot}?from=${now() - 3600}`, h)).json();
+  assert.equal(one.pts.length, 2);
+});
+
 test('carte publique : vols du jour sans clé, dernier vol seulement, pilote caché absent ; lien de suivi : tout l’historique', async () => {
   // à la longitude où il est midi au soleil : le jour solaire ne change pas pendant le test
   const t = now(), lon = (((12 - (t % 86400) / 3600) * 15 + 540) % 360) - 180, lat = 45.9;

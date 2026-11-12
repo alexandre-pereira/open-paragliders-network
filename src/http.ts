@@ -8,7 +8,7 @@ import { extname, join, normalize, resolve, sep } from 'node:path';
 import { gunzipSync, gzipSync } from 'node:zlib';
 import { createHash, timingSafeEqual } from 'node:crypto';
 import { AppError } from './apps.ts';
-import { parseArea, wire, type BBox } from './fix.ts';
+import { parseArea, wire, wireGnd, type BBox, type Fix } from './fix.ts';
 import { handleLt24 } from './lt24.ts';
 import type { SubState, Update } from './live.ts';
 import { HttpError, profileOf, type Service } from './service.ts';
@@ -238,26 +238,39 @@ export class Api {
         memory: svc.live.stats(), clients: this.wsCount(), maintenance: svc.lastMaintenance, uptime: Math.round(process.uptime()),
       };
     }
-    // qui est au sol (à pied, en voiture) selon son logiciel : ses points au sol ne viennent pas au back-office
-    if (m === 'GET' && path === 'ground') return { ground: svc.dayMap.grounded() };
+    // qui est au sol (à pied, en voiture) selon son logiciel ; avec since (numéro, gseq de tracks) : ses points au sol
+    // arrivés depuis, que le direct n'envoie pas (ils sont privés), avec le profil de chaque pilote
+    if (m === 'GET' && path === 'ground') {
+      const since = Number(q.get('since') ?? NaN);
+      if (!Number.isFinite(since)) return { ground: svc.dayMap.grounded() };
+      const fixes = svc.store.groundAfter(since), byPid = new Map<number, Fix[]>();
+      for (const f of fixes) { const g = byPid.get(f.pid); if (g) g.push(f); else byPid.set(f.pid, [f]); }
+      const pilots = [];
+      for (const [pid, fs] of byPid) {
+        const p = svc.live.pilots.get(pid);
+        if (p) pilots.push({ id: String(pid), p: p.profile, ...(p.blocked ? { blocked: true } : {}), pts: fs.sort((a, b) => a.ts - b.ts).map(wireGnd) });
+      }
+      return { ground: svc.dayMap.grounded(), gseq: fixes.length ? fixes[fixes.length - 1].seq : since, pilots };
+    }
     if (m === 'GET' && path === 'tracks') {
-      // toutes les traces d'une période, allégées pour la carte ; seq : pour suivre la suite en direct (since)
+      // toutes les traces d'une période, allégées pour la carte, points au sol compris (8e valeur 1) ; seq : pour
+      // suivre la suite en direct (since) ; gseq : la suite des points au sol, que le direct n'envoie pas (ground?since)
       const { from, to, step } = window(q, svc.now(), svc.cfg.retentionH);
-      const seq = svc.live.seq;
-      const tracks = svc.store.tracks(from, to, step || Math.max(1, Math.round((to - from) / 2000)));
+      const seq = svc.live.seq, gseq = svc.store.maxSeq();
+      const tracks = svc.store.tracks(from, to, step || Math.max(1, Math.round((to - from) / 2000)), 1_000_000, true);
       const pilots = [];
       for (const [pid, fixes] of tracks) {
         const p = svc.live.pilots.get(pid);
-        if (p) pilots.push({ id: String(pid), p: p.profile, ...(p.blocked ? { blocked: true } : {}), pts: fixes.map(wire) });
+        if (p) pilots.push({ id: String(pid), p: p.profile, ...(p.blocked ? { blocked: true } : {}), pts: fixes.map(wireGnd) });
       }
-      return { seq, now: Math.floor(svc.now()), from, to, pilots };
+      return { seq, gseq, now: Math.floor(svc.now()), from, to, pilots };
     }
     if (m === 'GET' && path === 'pilots') {
       const { from, to } = window(q, svc.now(), svc.cfg.retentionH);
-      const stats = new Map(svc.store.stats(from, to).map(s => [s.pid, s]));
+      const stats = new Map(svc.store.stats(from, to, true).map(s => [s.pid, s]));
       return {
         pilots: svc.store.allPilots().map(p => {
-          const s = stats.get(p.pid), last = svc.live.last(p.pid) ?? (s ? svc.store.lastFix(p.pid) : undefined);
+          const s = stats.get(p.pid), last = s ? svc.store.lastFix(p.pid, true) : svc.live.last(p.pid);
           return { id: String(p.pid), device: p.device, p: profileOf(p), blocked: p.blocked, created: p.created, seen: p.seen, n: s?.n ?? 0, t0: s?.t0 ?? null, t1: s?.t1 ?? null, last: last ? wire(last) : null };
         }),
       };
@@ -267,7 +280,7 @@ export class Api {
       const { from, to, step } = window(q, svc.now(), svc.cfg.retentionH);
       const p = svc.live.pilots.get(Number(tm[1]));
       if (!p) throw new HttpError(404, 'unknown-pilot');
-      return { id: tm[1], p: p.profile, pts: thin(svc.store.track(p.pid, from, to, 500000), step).map(wire) };
+      return { id: tm[1], p: p.profile, pts: thin(svc.store.track(p.pid, from, to, 500000, 0, true), step).map(wireGnd) };
     }
     const pm = /^pilots\/(\d+)\/(block|delete|profile|clear|ban-ip)$/.exec(path);
     if (m === 'POST' && pm) {
