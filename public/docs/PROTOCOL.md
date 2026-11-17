@@ -366,6 +366,25 @@ fix carries an 8th value `1` (`gnd`). The page splits it into flights (§11); a 
 state, when they have one (§7). No device, no pilot id, no app name. A replaced, erased, blocked or unknown link answers
 the same `404 unknown-link`. The page is served with `noindex` and `no-referrer`.
 
+**Notifications.** Whoever opens the link can ask to be notified (Web Push, even with the page closed) when the pilot
+takes off, lands, says « landed OK » or « needs help » (§7), and when the alert is cancelled. Your app has nothing to
+do: take-off and landing come from the fixes, at once when they carry `gnd` (the first fix without it after ground
+fixes, and the reverse), otherwise from the flight split (§11: about a minute after take-off, 5 min after landing). An
+event that reaches the server more than 30 min late notifies nobody. The page uses:
+
+```
+GET  /api/v1/push                      → { "key": "<VAPID public key, base64url>" }
+POST /api/v1/shared/<token>/push       { "on": true, "sub": <PushSubscription.toJSON()> }  → { "ok": true, "on": true }
+POST /api/v1/shared/<token>/push       { "on": false, "endpoint": "https://…" }           → { "ok": true, "on": false }
+POST /api/v1/shared/<token>/push       { "endpoint": "https://…" }                         → { "ok": true, "on": … }
+```
+
+The message is encrypted for that browser only (RFC 8291) and holds the pilot's name, the time, the event, and for an
+alert the declared position; never the token. The server sends only to the browsers' push services (Google, Mozilla,
+Apple, Microsoft); any other `endpoint` is `400 bad-subscription`. A new token drops every subscriber of the old
+one; « forget » drops them all. At most 200 subscribers per pilot and 50 pilots per browser (`429
+too-many-subscriptions`). On iPhone, notifications need the page added to the Home Screen first (iOS 16.4+).
+
 ---
 
 ## 7. SOS and landed OK
@@ -467,7 +486,8 @@ Fixes are kept 72 h (less when the disk is full: the oldest go first), then dele
 forgotten after 90 days. `POST /api/v1/forget` deletes everything at once. Apps must let the pilot choose to share,
 show which name is published, offer « forget me », tell the pilot that anyone holding their tracking link sees
 their position and every track the server keeps, that their name, wing, position and the track of their last flight of
-the day are on the public map unless `public` is `false`, and that « needs help » makes their name and position public.
+the day are on the public map unless `public` is `false`, that « needs help » makes their name and position public, and that people holding the link can be notified of their
+take-offs, landings and alerts.
 
 ---
 

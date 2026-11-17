@@ -43,6 +43,11 @@ export interface Config {
   rateNewDevice: number;
   /** messages WebSocket par connexion et par minute */
   maxWsPerMin: number;
+  /** notifications d'un lien de suivi (Web Push) : clés VAPID en base64url, vides = tirées une fois et gardées dans la
+   *  base ; qui joindre (mailto: ou https:), vide = CONTACT s'il s'y prête, sinon l'adresse du serveur */
+  vapidPublic: string;
+  vapidPrivate: string;
+  vapidSubject: string;
 }
 
 const num = (env: NodeJS.ProcessEnv, k: string, d: number, min = -Infinity, max = Infinity) => {
@@ -89,5 +94,15 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     maxBatch: num(env, 'MAX_BATCH', 5000, 10, 50000),
     rateNewDevice: num(env, 'RATE_NEW_DEVICE_PER_MIN', 20, 1),
     maxWsPerMin: num(env, 'MAX_WS_PER_MIN', 600, 10),
+    vapidPublic: env.VAPID_PUBLIC_KEY || '',
+    vapidPrivate: env.VAPID_PRIVATE_KEY || '',
+    vapidSubject: env.VAPID_SUBJECT || subjectOf(env.CONTACT),
   };
+}
+
+/** CONTACT comme « sub » VAPID : une adresse mail ou un site ; sinon vide */
+function subjectOf(c: string | undefined): string {
+  const v = (c ?? '').trim();
+  if (/^(mailto:|https:\/\/)\S+$/i.test(v)) return v;
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v) ? 'mailto:' + v : '';
 }

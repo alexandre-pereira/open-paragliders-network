@@ -11,6 +11,7 @@ import { DayMap } from './daymap.ts';
 import type { Config } from './config.ts';
 import { parseFix, wire, wireGnd, type NewFix } from './fix.ts';
 import { Live } from './live.ts';
+import { Push } from './push.ts';
 import { EMPTY_PROFILE, mergeProfile, sameProfile, type PilotStatus, type Profile } from './profile.ts';
 import { RateLimiter } from './rate.ts';
 import type { PilotRow, Store } from './store.ts';
@@ -70,6 +71,8 @@ export class Service {
   readonly live: Live;
   /** la carte publique du jour */
   readonly dayMap: DayMap;
+  /** notifications des liens de suivi */
+  readonly push: Push;
   /** heure (s), remplaçable dans les tests */
   clock: () => number = () => Date.now() / 1000;
   /** après un enregistrement : les abonnés en direct (ws.ts) peuvent partir plus tôt */
@@ -98,6 +101,10 @@ export class Service {
     this.live.load(store.recent(Math.floor(this.now()) - cfg.liveWindowMin * 60));
     for (const { pid, ...a } of store.allAlerts()) { const p = this.live.pilots.get(pid); if (p) this.live.setStatus(pid, a, p.pv); }
     this.dayMap = new DayMap(store, this.live, Math.floor(this.now()));
+    this.push = new Push(store, pid => {
+      const p = this.live.pilots.get(pid);
+      return p ? { name: [p.profile.first, p.profile.last].filter(Boolean).join(' '), blocked: p.blocked } : null;
+    }, { publicKey: cfg.vapidPublic, privateKey: cfg.vapidPrivate, subject: cfg.vapidSubject });
   }
 
   now() { return this.clock(); }
@@ -160,6 +167,7 @@ export class Service {
     this.dayMap.note(p.pid, shown);
     // au sol : la carte publique dit seulement qu'il y est (à pied ou en voiture), jamais où
     if (shown.length < stored.length) this.dayMap.ground(p.pid, stored.filter(f => f.gnd));
+    this.push.onFixes(p.pid, stored, nowS, this.inSos(p.pid));
     if (Math.floor(nowS) - p.seen >= 60) { this.store.touch(p.pid, Math.floor(nowS)); p.seen = Math.floor(nowS); }
     if (stored.length) this.onFixes?.();
     return { ok: true, pilot: String(p.pid), stored: stored.length, dup, bad, last: this.store.lastFix(p.pid, true)?.ts ?? null };
@@ -213,7 +221,9 @@ export class Service {
   }
 
   private apply(pid: number, status: PilotStatus | null) {
+    const prev = this.live.pilots.get(pid)?.profile.status ?? null;
     this.live.setStatus(pid, status, this.store.setAlert(pid, status));
+    this.push.onStatus(pid, prev, status, this.now());
     this.onFixes?.();
   }
 
@@ -240,13 +250,33 @@ export class Service {
    * vols), sans identifiant ni logiciel ; `since` : les points d'après cette heure. Sans jeton connu, la même réponse pour tous
    */
   shared(token: string, since: string | null) {
-    const pid = SHARE_RE.test(token) ? this.store.sharePid(sha256(token)) : undefined;
-    const p = pid === undefined ? undefined : this.live.pilots.get(pid);
-    if (pid === undefined || !p || p.blocked) throw new HttpError(404, 'unknown-link');
+    const { pid, p } = this.linked(token);
     const nowS = Math.floor(this.now()), oldest = this.oldest();
     const after = since !== null && since !== '' && Number.isFinite(Number(since)) ? Number(since) + 1 : null;
     const { status, ...who } = publicProfile(p.profile);
     return { p: who, ...(status ? { status } : {}), now: nowS, pts: (after === null ? this.store.trackThin(pid, oldest, nowS + 120, SHARED_STEP, true) : this.store.track(pid, after, nowS + 120, 100000, 0, true)).map(wireGnd) };
+  }
+
+  /** le pilote d'un lien de suivi valable ; sans jeton connu, la même réponse pour tous */
+  private linked(token: string) {
+    const pid = SHARE_RE.test(token) ? this.store.sharePid(sha256(token)) : undefined;
+    const p = pid === undefined ? undefined : this.live.pilots.get(pid);
+    if (pid === undefined || !p || p.blocked) throw new HttpError(404, 'unknown-link');
+    return { pid, p };
+  }
+
+  /**
+   * les notifications d'un lien de suivi, pour le navigateur qui l'ouvre : `on` true l'abonne (body.sub :
+   * PushSubscription.toJSON()), false le désabonne, absent dit seulement s'il l'est (body.endpoint)
+   */
+  pushLink(token: string, body: Record<string, unknown>) {
+    const { pid } = this.linked(token);
+    const sub = body.sub as { endpoint?: unknown } | undefined, endpoint = sub?.endpoint ?? body.endpoint;
+    if (body.on === true) {
+      const err = this.push.subscribe(pid, sha256(token), sub, this.now());
+      if (err) throw new HttpError(err === 'bad-subscription' ? 400 : 429, err);
+    } else if (body.on === false) this.push.unsubscribe(pid, endpoint);
+    return { ok: true as const, on: this.push.subscribed(pid, endpoint) };
   }
 
   /** le pilote efface tout ce que le serveur a de lui */
@@ -256,7 +286,7 @@ export class Service {
     this.remove(p.pid);
   }
 
-  remove(pid: number) { this.store.deletePilot(pid); this.live.removePilot(pid); this.dayMap.forget(pid); this.lastIp.delete(pid); }
+  remove(pid: number) { this.store.deletePilot(pid); this.live.removePilot(pid); this.dayMap.forget(pid); this.push.forget(pid); this.lastIp.delete(pid); }
 
   /** sur la carte publique : un pilote connu, pas bloqué, qui ne l'a pas refusée */
   onMap(pid: number) { const p = this.live.pilots.get(pid); return !!p && !p.blocked && p.profile.public !== false; }
@@ -365,7 +395,7 @@ export class Service {
     this.store.checkpoint();
     this.live.trim(nowS);
     const forgotten = this.store.forgetIdle(nowS - this.cfg.pilotTtlDays * 86400);
-    for (const pid of forgotten) this.live.removePilot(pid);
+    for (const pid of forgotten) { this.live.removePilot(pid); this.push.forget(pid); }
     this.store.lt24Purge(nowS - 2 * 86400);
     this.store.purgeJournal(nowS - JOURNAL_S);
     this.apps.flush();

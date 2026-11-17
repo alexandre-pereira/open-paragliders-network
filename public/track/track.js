@@ -135,6 +135,7 @@ async function tick() {
       pts = []; flights = []; scores.clear(); who = null;
       drawFlag(null);
       document.title = T.title;
+      document.dispatchEvent(new CustomEvent('pilot', { detail: { name: '', gone: true } }));
       if (loaded) { map.getSource('track').setData({ type: 'FeatureCollection', features: [] }); air3d.setData([], true, null); }
       map.jumpTo({ center: [6.1, 45.9], zoom: 5 });
       setTimeout(tick, 5000);
@@ -145,6 +146,8 @@ async function tick() {
     who = [d.p.first, d.p.last].filter(Boolean).join(' ');
     ptype = d.p.type ?? null;
     $('name').textContent = who || T.title;
+    // la barre des notifications (notify.js) : le nom, et le lien de nouveau valable
+    document.dispatchEvent(new CustomEvent('pilot', { detail: { name: who, gone: false } }));
     document.title = who ? `${who} – ${T.title}` : T.title;
     $('wing').textContent = [d.p.brand, d.p.wing].filter(Boolean).join(' ');
     drawFlag(d.status);

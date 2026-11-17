@@ -1,0 +1,7 @@
+{
+  "name": "Suivi en direct",
+  "short_name": "Suivi",
+  "display": "standalone",
+  "background_color": "#ffffff",
+  "theme_color": "#0047ff"
+}

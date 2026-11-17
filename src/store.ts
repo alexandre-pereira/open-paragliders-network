@@ -97,12 +97,27 @@ CREATE TABLE IF NOT EXISTS shares (
   hash TEXT NOT NULL UNIQUE,
   at INTEGER NOT NULL
 );
+CREATE TABLE IF NOT EXISTS push (
+  pid INTEGER NOT NULL,
+  hash TEXT NOT NULL,
+  endpoint TEXT NOT NULL,
+  p256dh TEXT NOT NULL,
+  auth TEXT NOT NULL,
+  at INTEGER NOT NULL,
+  PRIMARY KEY (pid, endpoint)
+);
+CREATE TABLE IF NOT EXISTS meta (
+  k TEXT PRIMARY KEY,
+  v TEXT NOT NULL
+);
 `;
 
 /** un logiciel géré au back-office */
 export interface AppRow { id: number; name: string; contact: string; note: string; hash: string; revoked: boolean; created: number; rotated: number; seen: number; requests: number; points: number }
 export interface BanRow { device: string; label: string; reason: string; at: number }
 export interface AuditRow { t: number; ip: string; action: string; detail: string }
+/** un abonnement Web Push d'un navigateur (clés en base64url) */
+export interface PushSub { endpoint: string; p256dh: string; auth: string }
 
 type Row = Record<string, unknown>;
 const toPilot = (r: Row): PilotRow => ({
@@ -188,6 +203,14 @@ export class Store {
     p('sharePid', 'SELECT pid FROM shares WHERE hash = ?');
     p('sharePut', 'INSERT INTO shares (pid, hash, at) VALUES (?, ?, ?) ON CONFLICT (pid) DO UPDATE SET hash = excluded.hash, at = excluded.at');
     p('delShare', 'DELETE FROM shares WHERE pid = ?');
+    // les abonnés aux notifications d'un lien de suivi : un nouveau lien les coupe tous
+    p('pushPut', 'INSERT INTO push (pid, hash, endpoint, p256dh, auth, at) VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT (pid, endpoint) DO UPDATE SET hash = excluded.hash, p256dh = excluded.p256dh, auth = excluded.auth, at = excluded.at');
+    p('pushDel', 'DELETE FROM push WHERE pid = ? AND endpoint = ?');
+    p('pushOf', 'SELECT push.* FROM push JOIN shares ON shares.pid = push.pid AND shares.hash = push.hash WHERE push.pid = ?');
+    p('pushHas', 'SELECT 1 FROM push WHERE pid = ? AND endpoint = ?');
+    p('pushCount', 'SELECT (SELECT count(*) FROM push WHERE pid = ?) AS byPilot, (SELECT count(*) FROM push WHERE endpoint = ?) AS byEndpoint');
+    p('pushStale', 'DELETE FROM push WHERE pid = ? AND hash <> ?');
+    p('delPush', 'DELETE FROM push WHERE pid = ?');
     p('banned', 'SELECT 1 FROM bans WHERE device = ?');
     p('audit', 'INSERT INTO audit (t, ip, action, detail) VALUES (?, ?, ?, ?)');
     p('appCount', 'UPDATE apps SET requests = requests + ?, points = points + ?, seen = max(seen, ?) WHERE name = ?');
@@ -217,7 +240,7 @@ export class Store {
   setBlocked(pid: number, b: boolean) { this.st.blocked.run(b ? 1 : 0, pid); }
   /** le pilote et toute sa trace */
   deletePilot(pid: number) {
-    this.tx(() => { this.st.delPoints.run(pid); this.st.delLt24.run(pid); this.st.delShare.run(pid); this.st.alertDel.run(pid); this.st.delPilot.run(pid); });
+    this.tx(() => { this.st.delPoints.run(pid); this.st.delLt24.run(pid); this.st.delShare.run(pid); this.st.delPush.run(pid); this.st.alertDel.run(pid); this.st.delPilot.run(pid); });
   }
   // ── logiciels ──────────────────────────────────────────────────────────────────────────────────────────────────
 
@@ -259,7 +282,23 @@ export class Store {
   /** le pilote d'un lien de suivi (empreinte du jeton) */
   sharePid(hash: string): number | undefined { return (this.st.sharePid.get(hash) as Row | undefined)?.pid as number | undefined; }
   /** le lien de suivi du pilote : un seul, le précédent cesse de marcher */
-  setShare(pid: number, hash: string, now: number) { this.st.sharePut.run(pid, hash, now); }
+  setShare(pid: number, hash: string, now: number) { this.tx(() => { this.st.sharePut.run(pid, hash, now); this.st.pushStale.run(pid, hash); }); }
+
+  // ── notifications d'un lien de suivi ───────────────────────────────────────────────────────────────────────────
+
+  /** un navigateur abonné aux notifications du pilote, par le lien de suivi d'empreinte `hash` */
+  pushAdd(pid: number, hash: string, s: PushSub, now: number) { this.st.pushPut.run(pid, hash, s.endpoint, s.p256dh, s.auth, now); }
+  pushDel(pid: number, endpoint: string) { this.st.pushDel.run(pid, endpoint); }
+  pushHas(pid: number, endpoint: string) { return !!this.st.pushHas.get(pid, endpoint); }
+  /** abonnés du pilote, et pilotes suivis par ce navigateur */
+  pushCount(pid: number, endpoint: string) { return this.st.pushCount.get(pid, endpoint) as { byPilot: number; byEndpoint: number }; }
+  /** les abonnés du lien de suivi en cours du pilote (ceux d'un lien remplacé n'ont plus rien) */
+  pushOf(pid: number): (PushSub & { hash: string })[] { return this.st.pushOf.all(pid) as unknown as (PushSub & { hash: string })[]; }
+  /** les pilotes qui ont au moins un abonné */
+  pushPids(): number[] { return (this.db.prepare('SELECT DISTINCT pid FROM push').all() as Row[]).map(r => r.pid as number); }
+
+  meta(k: string): string | undefined { return (this.db.prepare('SELECT v FROM meta WHERE k = ?').get(k) as Row | undefined)?.v as string | undefined; }
+  setMeta(k: string, v: string) { this.db.prepare('INSERT INTO meta (k, v) VALUES (?, ?) ON CONFLICT (k) DO UPDATE SET v = excluded.v').run(k, v); }
 
   // ── points ─────────────────────────────────────────────────────────────────────────────────────────────────────
 

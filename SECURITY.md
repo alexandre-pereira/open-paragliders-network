@@ -9,6 +9,10 @@ rather than in a public issue. Please do not test against a server you do not op
 - **Application keys** are stored as SHA-256 hashes, shown once at creation, and can be rotated or revoked from the
   back-office: open connections of a revoked application are closed at once.
 - **Tracking links**: the token is drawn by the device and only its hash is stored. A new link kills the old one at once.
+- **Notifications of a tracking link** (Web Push): a subscription is tied to the link's hash, so a new link or « forget »
+  drops every subscriber at once. Messages are encrypted for the subscribed browser (RFC 8291) and never carry the
+  token. The server only sends to the browsers' push services (an allow-list of hosts): a link holder cannot make it
+  call any other address. The VAPID key pair is drawn once and kept in the database unless set in the environment.
 - **SOS** (« needs help ») is public on purpose: `/sos` and `GET /api/v1/sos` need no key. They show the name, wing,
   position and recent track of pilots in `sos`, with no device, pilot id or app name, and nothing about other pilots.
 - **Public map** (`/`, `GET /api/v1/map`) is public on purpose, like XContest Live: name, wing, type, position and the
@@ -26,7 +30,8 @@ rather than in a public issue. Please do not test against a server you do not op
 
 ## What it does not do
 
-- It is not a rescue service: an SOS is shown to other pilots and on a public page, it alerts nobody else.
+- It is not a rescue service: an SOS is shown to other pilots and on a public page, and notified only to the people who
+  asked for it on the pilot's tracking link. Push services can be late or drop a message.
 - Pilots are identified by their device, not by a verified identity: a name is what the pilot typed, and an SOS can be
   false.
 - The LiveTrack24 compatibility has no application key, because that protocol has none: it can be turned off (`LT24=0`).

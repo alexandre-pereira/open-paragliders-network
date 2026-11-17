@@ -23,7 +23,7 @@ const PUBLIC = resolve(import.meta.dirname, '..', 'public');
 const MAX_BODY = 4 * 1048576;
 const MIME: Record<string, string> = {
   '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8',
-  '.svg': 'image/svg+xml', '.png': 'image/png', '.ico': 'image/x-icon', '.json': 'application/json', '.md': 'text/markdown; charset=utf-8', '.mjs': 'text/plain; charset=utf-8',
+  '.svg': 'image/svg+xml', '.png': 'image/png', '.ico': 'image/x-icon', '.json': 'application/json', '.md': 'text/markdown; charset=utf-8', '.mjs': 'text/plain; charset=utf-8', '.webmanifest': 'application/manifest+json',
 };
 
 /** l'adresse du client. Derrière un proxy, la DERNIÈRE de X-Forwarded-For : c'est lui qui l'a écrite ; les premières
@@ -36,7 +36,7 @@ const eq = (a: string, b: string) => timingSafeEqual(createHash('sha256').update
 
 /** les pages : scripts et feuilles d'ici et du CDN (avec leur empreinte), cartes et relief, rien d'autre */
 const CSP = "default-src 'none'; script-src 'self' https://unpkg.com; style-src 'self' 'unsafe-inline' https://unpkg.com; img-src 'self' data: blob: https:; font-src 'self' data:; "
-  + "connect-src 'self' wss: https://tiles.openfreemap.org https://s3.amazonaws.com; worker-src 'self' blob:; child-src blob:; base-uri 'none'; form-action 'self'; frame-ancestors 'none'";
+  + "connect-src 'self' wss: https://tiles.openfreemap.org https://s3.amazonaws.com; worker-src 'self' blob:; child-src blob:; manifest-src 'self'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'";
 /** une connexion LiveTrack24 avec mot de passe coûte un scrypt, qui bloque le serveur le temps du calcul */
 const LT24_LOGIN_COST = 20;
 /** la carte publique est la même pour tous ses lecteurs : calculée et compressée au plus une fois par MAP_CACHE_MS */
@@ -118,6 +118,13 @@ export class Api {
     // un lien de suivi : le jeton suffit, ses lecteurs (les proches du pilote) n'ont pas de clé de logiciel
     const sm = /^\/api\/v1\/shared\/([^/]+)$/.exec(path);
     if (m === 'GET' && sm) return this.json(req, res, 200, svc.shared(sm[1], q.get('since')));
+    // ses notifications : la clé du serveur, puis l'abonnement du navigateur à ce lien
+    if (m === 'GET' && path === '/api/v1/push') return this.json(req, res, 200, { key: svc.push.publicKey });
+    const nm = /^\/api\/v1\/shared\/([^/]+)\/push$/.exec(path);
+    if (m === 'POST' && nm) {
+      svc.push.origin(`https://${req.headers.host ?? ''}`);
+      return this.json(req, res, 200, svc.pushLink(nm[1], await readJson(req)));
+    }
     // les pilotes qui ont dit « posé pas OK » : public, pour que tout le monde puisse les voir
     if (m === 'GET' && path === '/api/v1/sos') return this.json(req, res, 200, svc.sosList());
     // la carte publique : sans clé, comme XContest Live ; un pilote qui l'a refusée (profil public: false) n'y est pas
