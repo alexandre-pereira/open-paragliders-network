@@ -10,14 +10,14 @@ const T = fr
     denied: 'Notifications bloquées : tu ne seras pas prévenu si {n} demande de l’aide.', deniedHow: 'Autorise-les pour ce site dans les réglages du navigateur (le cadenas ou ⓘ à gauche de l’adresse › Notifications › Autoriser), puis :', retry: 'Réessayer',
     ios: 'Pour être prévenu si {n} demande de l’aide : Partager › « Sur l’écran d’accueil », puis ouvre le suivi depuis l’écran d’accueil et active les notifications.',
     fail: 'Échec, réessaie dans un instant.', pilot: 'le pilote',
-    how: 'Message chiffré, remis par le service de notification de ton navigateur (Google, Apple, Mozilla ou Microsoft), qui ne peut pas le lire. Ce n’est pas un service de secours : en cas de doute, appelle le 112.', privacy: 'Confidentialité',
+    how: 'Message chiffré, transmis par le service de notification de ton navigateur sans qu’il puisse le lire. Pas un service de secours : en cas de doute, appelle le 112.', privacy: 'Confidentialité',
   }
   : {
     ask: 'Get notified when {n} takes off, lands, and above all of any SOS', on: 'Notifications on: take-off, landing, SOS', enable: 'Turn on notifications', off: 'Turn off',
     denied: 'Notifications blocked: you will not be told if {n} asks for help.', deniedHow: 'Allow them for this site in the browser settings (the padlock or ⓘ left of the address › Notifications › Allow), then:', retry: 'Try again',
     ios: 'To be told if {n} asks for help: Share › “Add to Home Screen”, then open the tracking page from the Home Screen and turn notifications on.',
     fail: 'Failed, try again in a moment.', pilot: 'the pilot',
-    how: 'Encrypted message, delivered by your browser’s push service (Google, Apple, Mozilla or Microsoft), which cannot read it. This is not a rescue service: if in doubt, call 112.', privacy: 'Privacy',
+    how: 'Encrypted message, passed on by your browser’s push service, which cannot read it. Not a rescue service: if in doubt, call 112.', privacy: 'Privacy',
   };
 
 const bar = document.getElementById('notif');

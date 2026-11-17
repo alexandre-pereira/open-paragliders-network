@@ -27,9 +27,11 @@ dd { margin: 0; font-weight: 700; font-variant-numeric: tabular-nums; }
 .pilot-icon { width: 34px; height: 34px; filter: drop-shadow(0 0 2px rgba(0, 0, 0, .45)); }
 .pilot-icon canvas { width: 34px; height: 34px; display: block; }
 /* notifications : bien visibles tant qu'elles ne sont pas en marche */
-#notif { position: sticky; top: -12px; z-index: 1; display: flex; align-items: center; gap: 10px; margin: -12px -14px 10px; padding: 10px 14px; font-size: .88rem; border-radius: 12px 12px 0 0; }
+#notif { position: sticky; top: -12px; z-index: 1; display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin: -12px -14px 10px; padding: 10px 14px; font-size: .88rem; border-radius: 12px 12px 0 0; }
 #notif .bell { font-size: 1.3rem; line-height: 1; }
-#notif > span:nth-child(2) { flex: 1; min-width: 0; }
+#notif > span:nth-child(2) { flex: 1 1 200px; min-width: 0; }
+/* téléphone : le bouton sous le texte, sur toute la largeur */
+@media (max-width: 480px) { #notif.warn button { flex: 1 1 100%; } }
 #notif small { display: block; margin-top: 3px; font-size: .8rem; font-weight: 400; }
 #notif button { flex: none; padding: 8px 12px; border: 0; border-radius: 8px; font: inherit; font-weight: 700; color: #fff; background: #c2410c; cursor: pointer; }
 #notif button:disabled { opacity: .6; cursor: default; }
