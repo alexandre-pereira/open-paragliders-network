@@ -66,6 +66,7 @@ la clé, et le mot de passe du back-office (aussi dans `data/local.txt`). Clé e
 | `RATE_HTTP_PER_MIN`, `MAX_WS_PER_IP`, `MAX_BATCH` | `600`, `20`, `5000` | limites |
 | `RATE_NEW_DEVICE_PER_MIN`, `MAX_WS_PER_MIN` | `20`, `600` | appareils nouveaux par IP, messages WebSocket par connexion |
 | `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY` | vides | clés des notifications d'un lien de suivi (Web Push, base64url) ; vides = tirées au premier démarrage et gardées dans la base. Les changer coupe tous les abonnés |
+| `PRIVACY_URL` | vide | politique de confidentialité de l'exploitant (`https://…`), liée par la barre des notifications d'un lien de suivi : ce qu'un proche accepte en les activant |
 | `VAPID_SUBJECT` | `CONTACT` | qui joindre pour les services de notification (`mailto:…` ou `https://…`) ; sans lui ni `CONTACT` : l'adresse du serveur |
 
 ## Déployer (VPS)

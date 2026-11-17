@@ -373,7 +373,7 @@ fixes, and the reverse), otherwise from the flight split (§11: about a minute a
 event that reaches the server more than 30 min late notifies nobody. The page uses:
 
 ```
-GET  /api/v1/push                      → { "key": "<VAPID public key, base64url>" }
+GET  /api/v1/push                      → { "key": "<VAPID public key, base64url>", "privacy": "<operator's privacy policy, if set>" }
 POST /api/v1/shared/<token>/push       { "on": true, "sub": <PushSubscription.toJSON()> }  → { "ok": true, "on": true }
 POST /api/v1/shared/<token>/push       { "on": false, "endpoint": "https://…" }           → { "ok": true, "on": false }
 POST /api/v1/shared/<token>/push       { "endpoint": "https://…" }                         → { "ok": true, "on": … }

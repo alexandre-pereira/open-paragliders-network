@@ -44,3 +44,4 @@ dd { margin: 0; font-weight: 700; font-variant-numeric: tabular-nums; }
   #notif.denied { color: #ffd6da; background: #4d0f18; }
 }
 @media (prefers-reduced-motion: reduce) { #notif.warn { animation: none; } }
+#notif a { color: inherit; font-weight: 600; text-decoration: underline; }

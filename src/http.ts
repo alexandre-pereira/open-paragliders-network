@@ -119,7 +119,7 @@ export class Api {
     const sm = /^\/api\/v1\/shared\/([^/]+)$/.exec(path);
     if (m === 'GET' && sm) return this.json(req, res, 200, svc.shared(sm[1], q.get('since')));
     // ses notifications : la clé du serveur, puis l'abonnement du navigateur à ce lien
-    if (m === 'GET' && path === '/api/v1/push') return this.json(req, res, 200, { key: svc.push.publicKey });
+    if (m === 'GET' && path === '/api/v1/push') return this.json(req, res, 200, { key: svc.push.publicKey, ...(svc.cfg.privacyUrl ? { privacy: svc.cfg.privacyUrl } : {}) });
     const nm = /^\/api\/v1\/shared\/([^/]+)\/push$/.exec(path);
     if (m === 'POST' && nm) {
       svc.push.origin(`https://${req.headers.host ?? ''}`);

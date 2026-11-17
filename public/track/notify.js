@@ -10,12 +10,14 @@ const T = fr
     denied: 'Notifications bloquées : tu ne seras pas prévenu si {n} demande de l’aide.', deniedHow: 'Autorise-les pour ce site dans les réglages du navigateur (le cadenas ou ⓘ à gauche de l’adresse › Notifications › Autoriser), puis :', retry: 'Réessayer',
     ios: 'Pour être prévenu si {n} demande de l’aide : Partager › « Sur l’écran d’accueil », puis ouvre le suivi depuis l’écran d’accueil et active les notifications.',
     fail: 'Échec, réessaie dans un instant.', pilot: 'le pilote',
+    how: 'Message chiffré, remis par le service de notification de ton navigateur (Google, Apple, Mozilla ou Microsoft), qui ne peut pas le lire. Ce n’est pas un service de secours : en cas de doute, appelle le 112.', privacy: 'Confidentialité',
   }
   : {
     ask: 'Get notified when {n} takes off, lands, and above all of any SOS', on: 'Notifications on: take-off, landing, SOS', enable: 'Turn on notifications', off: 'Turn off',
     denied: 'Notifications blocked: you will not be told if {n} asks for help.', deniedHow: 'Allow them for this site in the browser settings (the padlock or ⓘ left of the address › Notifications › Allow), then:', retry: 'Try again',
     ios: 'To be told if {n} asks for help: Share › “Add to Home Screen”, then open the tracking page from the Home Screen and turn notifications on.',
     fail: 'Failed, try again in a moment.', pilot: 'the pilot',
+    how: 'Encrypted message, delivered by your browser’s push service (Google, Apple, Mozilla or Microsoft), which cannot read it. This is not a rescue service: if in doubt, call 112.', privacy: 'Privacy',
   };
 
 const bar = document.getElementById('notif');
@@ -25,7 +27,7 @@ const supported = window.isSecureContext && 'serviceWorker' in navigator && 'Pus
 const ios = /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
 const standalone = matchMedia('(display-mode: standalone)').matches || navigator.standalone === true;
 /** checked : l'état réel est connu (sans ça, la barre « Activer » clignoterait le temps de le lire) */
-let name = '', gone = false, on = false, busy = false, failed = false, checked = false;
+let name = '', gone = false, on = false, busy = false, failed = false, checked = false, privacy = '';
 
 const el = (tag, props = {}, ...kids) => { const e = document.createElement(tag); Object.assign(e, props); for (const k of kids) if (k != null) e.append(k); return e; };
 const b64 = s => { const b = atob(s.replace(/-/g, '+').replace(/_/g, '/') + '==='.slice((s.length + 3) % 4)); return Uint8Array.from(b, c => c.charCodeAt(0)); };
@@ -109,11 +111,14 @@ function render() {
     bar.replaceChildren(el('span', { className: 'bell', textContent: '🔔' }), el('span', { textContent: T.ios.replace('{n}', n) }));
     return;
   }
+  // la politique de l'exploitant (PRIVACY_URL du serveur) : ce qu'on accepte en les activant
+  const policy = () => (privacy ? el('a', { href: privacy, target: '_blank', rel: 'noopener', textContent: T.privacy }) : null);
   if (on) {
     bar.className = 'on';
     const off = el('button', { type: 'button', className: 'link', textContent: T.off, disabled: busy });
     off.addEventListener('click', () => void disable());
-    bar.replaceChildren(el('span', { className: 'bell', textContent: '🔔' }), el('span', { textContent: T.on }), off);
+    const p = policy();
+    bar.replaceChildren(el('span', { className: 'bell', textContent: '🔔' }), el('span', {}, T.on, ...(p ? [' · ', p] : [])), off);
     return;
   }
   const denied = Notification.permission === 'denied';
@@ -122,6 +127,7 @@ function render() {
   btn.addEventListener('click', () => void (denied ? check() : enable()));
   const text = el('span', {}, el('b', { textContent: (denied ? T.denied : T.ask).replace('{n}', n) }));
   if (denied) text.append(el('small', { textContent: T.deniedHow }));
+  else { const p = policy(); text.append(el('small', {}, T.how, ...(p ? [' ', p] : []))); }
   if (failed) text.append(el('small', { textContent: T.fail }));
   bar.replaceChildren(el('span', { className: 'bell', textContent: denied ? '🔕' : '🔔' }), text, btn);
 }
@@ -135,5 +141,6 @@ document.addEventListener('pilot', e => {
 document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') void check(); });
 try { navigator.permissions?.query({ name: 'notifications' }).then(p => { p.onchange = () => void check(); }, () => {}); } catch { /* ancien navigateur */ }
 void check();
+fetch('/api/v1/push', { cache: 'no-store' }).then(r => r.json()).then(d => { privacy = typeof d.privacy === 'string' && /^https:\/\//.test(d.privacy) ? d.privacy : ''; render(); }, () => {});
 // un navigateur qui ne répond pas (service worker refusé) : la barre vient quand même
 setTimeout(() => { if (!checked) { checked = true; render(); } }, 4000);
