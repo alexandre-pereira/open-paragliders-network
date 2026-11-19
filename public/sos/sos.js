@@ -3,10 +3,25 @@
 
 const fr = /^fr/i.test(navigator.language);
 const T = fr
-  ? { title: 'Pilotes en difficulté', warn: 'Cette page ne prévient pas les secours : en cas de danger, appelle le 112.', none: 'Aucun pilote en difficulté en ce moment.', since: 'posé pas OK il y a {t}', alt: 'altitude {a} m', maps: 'Ouvrir dans une carte', pilot: 'Pilote', down: 'Réseau coupé, nouvel essai…' }
-  : { title: 'Pilots in trouble', warn: 'This page does not alert the rescue services: in an emergency, call 112.', none: 'No pilot in trouble right now.', since: 'landed, needs help, {t} ago', alt: 'altitude {a} m', maps: 'Open in a map', pilot: 'Pilot', down: 'Network down, trying again…' };
+  ? { title: 'Pilotes en difficulté', warn: 'Cette page ne prévient pas les secours : en cas de danger, appelle le 112.', none: 'Aucun pilote en difficulté en ce moment.', since: 'posé pas OK il y a {t}', alt: 'altitude {a} m', maps: 'Ouvrir dans une carte', pilot: 'Pilote', down: 'Réseau coupé, nouvel essai…', legal: 'Mentions légales', privacy: 'Confidentialité' }
+  : { title: 'Pilots in trouble', warn: 'This page does not alert the rescue services: in an emergency, call 112.', none: 'No pilot in trouble right now.', since: 'landed, needs help, {t} ago', alt: 'altitude {a} m', maps: 'Open in a map', pilot: 'Pilot', down: 'Network down, trying again…', legal: 'Legal notice', privacy: 'Privacy' };
 const $ = id => document.getElementById(id);
 $('title').textContent = T.title; $('warn').textContent = T.warn; document.title = T.title;
+
+// les mentions légales et la politique de confidentialité de l'exploitant (LEGAL_URL, PRIVACY_URL du serveur)
+fetch('/api/v1').then(r => r.json()).then(d => {
+  const links = [[d.legal, T.legal], [d.privacy, T.privacy]].filter(([u]) => typeof u === 'string' && /^https:\/\//.test(u));
+  if (!links.length) return;
+  const p = document.createElement('p');
+  p.className = 'legal';
+  links.forEach(([u, t], i) => {
+    if (i) p.append(' · ');
+    const a = document.createElement('a');
+    a.href = u; a.textContent = t; a.target = '_blank'; a.rel = 'noopener';
+    p.append(a);
+  });
+  $('panel').append(p);
+}).catch(() => { /* sans liens */ });
 
 const map = new maplibregl.Map({ container: 'map', style: 'https://tiles.openfreemap.org/styles/liberty', center: [6.1, 45.9], zoom: 5, attributionControl: { compact: true } });
 let markers = [], loaded = false, framed = false;

@@ -50,6 +50,8 @@ export interface Config {
   vapidSubject: string;
   /** la politique de confidentialité de l'exploitant, liée par la barre des notifications d'un lien de suivi ; vide = pas de lien */
   privacyUrl: string;
+  /** les mentions légales de l'exploitant (qui publie les pages publiques, son hébergeur) ; vide = pas de lien */
+  legalUrl: string;
 }
 
 const num = (env: NodeJS.ProcessEnv, k: string, d: number, min = -Infinity, max = Infinity) => {
@@ -100,6 +102,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     vapidPrivate: env.VAPID_PRIVATE_KEY || '',
     vapidSubject: env.VAPID_SUBJECT || subjectOf(env.CONTACT),
     privacyUrl: /^https:\/\/\S+$/.test(env.PRIVACY_URL ?? '') ? env.PRIVACY_URL! : '',
+    legalUrl: /^https:\/\/\S+$/.test(env.LEGAL_URL ?? '') ? env.LEGAL_URL! : '',
   };
 }
 

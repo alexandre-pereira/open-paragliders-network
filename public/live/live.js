@@ -99,7 +99,7 @@ $('q').addEventListener('keydown', e => { if (e.key === 'Enter') { const p = vis
 $('sort').addEventListener('change', () => { state.sort = $('sort').value; store.set('opn.sort', state.sort); renderList(); });
 $('rule').addEventListener('change', () => { state.league = $('rule').value; store.set('opn.league', state.league); drawSel(); renderDetail(); });
 
-function about(contact) {
+function about(contact, legal, privacy) {
   const P = t => el('p', { textContent: t }), H = t => el('h3', { textContent: t });
   const link = (href, t) => el('a', { href, textContent: t });
   const kids = fr ? [
@@ -128,10 +128,14 @@ function about(contact) {
     el('p', {}, 'The server is open to every flight app: ', link('/docs/', 'documentation'), '.'),
   ];
   if (contact) kids.push(P((fr ? 'Contact : ' : 'Contact: ') + contact));
+  // qui publie cette carte et ce qu'il fait des données : LEGAL_URL et PRIVACY_URL du serveur
+  const ok = u => typeof u === 'string' && /^https:\/\//.test(u);
+  const links = [[legal, fr ? 'Mentions légales' : 'Legal notice'], [privacy, fr ? 'Politique de confidentialité' : 'Privacy policy']].filter(([u]) => ok(u));
+  if (links.length) kids.push(el('p', {}, ...links.flatMap(([u, t], i) => [...(i ? [' · '] : []), el('a', { href: u, textContent: t, target: '_blank', rel: 'noopener' })])));
   $('aboutText').replaceChildren(...kids);
 }
 about('');
-fetch('/api/v1').then(r => r.json()).then(d => about(d.contact)).catch(() => { /* sans contact */ });
+fetch('/api/v1').then(r => r.json()).then(d => about(d.contact, d.legal, d.privacy)).catch(() => { /* sans contact */ });
 $('aboutBtn').addEventListener('click', () => { $('about').hidden = false; });
 $('aboutClose').addEventListener('click', () => { $('about').hidden = true; });
 $('about').addEventListener('click', e => { if (e.target === $('about')) $('about').hidden = true; });

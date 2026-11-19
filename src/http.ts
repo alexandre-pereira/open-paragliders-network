@@ -194,6 +194,7 @@ export class Api {
       name: 'open-paragliders-network', version: VERSION, protocol: PROTOCOL, contact: c.contact, now: Math.floor(this.svc.now()),
       retentionH: c.retentionH, liveWindowS: c.liveWindowMin * 60, minEvery: c.minEvery, defaultEvery: c.defaultEvery,
       defaultTrailS: c.defaultTrailS, maxBatch: c.maxBatch, appKeyRequired: !this.svc.apps.open, lt24: c.lt24,
+      ...(c.legalUrl ? { legal: c.legalUrl } : {}), ...(c.privacyUrl ? { privacy: c.privacyUrl } : {}),
     };
   }
 

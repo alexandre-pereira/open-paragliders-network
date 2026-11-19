@@ -211,6 +211,13 @@ test('clé de logiciel exigée', async () => {
   assert.equal((await get('/api/v1/live', { 'X-WSNav-Key': KEY })).status, 200, 'en-tête des serveurs WeSoar');
   const info = await (await get('/api/v1')).json();
   assert.equal(info.protocol, 1);
+  assert.equal(info.legal, undefined, 'sans LEGAL_URL, pas de lien');
+});
+
+test('mentions légales et confidentialité de l’exploitant dans GET /api/v1, en https seulement', () => {
+  const cfg = loadConfig({ LEGAL_URL: 'https://example.org/mentions/', PRIVACY_URL: 'http://example.org/privacy' });
+  assert.equal(cfg.legalUrl, 'https://example.org/mentions/');
+  assert.equal(cfg.privacyUrl, '', 'une adresse http est refusée');
 });
 
 test('HTTP : envoi, doublons, direct, suite avec since, GeoJSON, trace', async () => {
