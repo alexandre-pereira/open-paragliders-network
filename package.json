@@ -16,7 +16,7 @@
     "local": "node --disable-warning=ExperimentalWarning tools/local.ts"
   },
   "dependencies": {
-    "ws": "8.22.0"
+    "ws": "8.23.0"
   },
   "devDependencies": {
     "@types/node": "24.19.2",
