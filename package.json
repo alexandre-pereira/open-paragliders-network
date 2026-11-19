@@ -2,6 +2,7 @@
   "name": "open-paragliders-network",
   "version": "0.1.0",
   "private": true,
+  "license": "ISC",
   "description": "Serveur de livetracking ouvert du vol libre : positions des pilotes en direct, trace rejouée après une coupure réseau, 72 h d'historique, carte de back-office",
   "type": "module",
   "engines": { "node": ">=22.18" },

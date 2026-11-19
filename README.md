@@ -125,3 +125,13 @@ test/            tests (node --test)
 tools/simulate.ts pilotes simulés
 tools/local.ts   essai depuis ce PC avec un tunnel
 ```
+
+## Licence
+
+Code de WeSoar, écrit par Alexandre Pereira, ouvert sous licence [ISC](LICENSE) : chacun peut l'utiliser, le modifier,
+l'héberger et le redistribuer, en gardant la mention de copyright et le texte de la licence. La documentation des
+développeurs et son exemple (`public/docs/`) sont sous la même licence.
+
+MapLibre GL JS, servi depuis `public/vendor/maplibre-gl-6.14.0/`, reste sous sa licence BSD à 3 clauses (`LICENSE.txt`
+du même dossier). Les fonds de carte viennent d'OpenFreeMap (© OpenMapTiles, données © contributeurs OpenStreetMap,
+ODbL) et le relief des Mapzen Terrain Tiles : leurs mentions sont affichées sur chaque carte.
