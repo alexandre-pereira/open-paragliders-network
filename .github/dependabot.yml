@@ -1,9 +1,15 @@
 version: 2
+# Le serveur tourne en Node 24 partout (image Docker, CI, systemd) : on ne propose pas
+# de nouvelle version majeure de Node ni de ses types. Un passage à une autre version
+# de Node se fait à la main, partout à la fois.
 updates:
   - package-ecosystem: npm
     directory: /
     schedule:
       interval: weekly
+    ignore:
+      - dependency-name: "@types/node"
+        update-types: ["version-update:semver-major"]
   - package-ecosystem: github-actions
     directory: /
     schedule:
@@ -12,3 +18,6 @@ updates:
     directory: /
     schedule:
       interval: monthly
+    ignore:
+      - dependency-name: node
+        update-types: ["version-update:semver-major"]
